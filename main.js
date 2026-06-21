@@ -30,7 +30,7 @@ let unsubscribeActiveTickets = null;
 const SESSION_KEY = "esspreso_jwt";
 const USER_KEY = "esspreso_user";
 const PUBLIC_ROUTES = ["menu", "login"];
-const TOKEN_HOURS = 10;
+const TOKEN_HOURS = 4;
 const DEV_USERS = {
   andrea: "andreaSpre",
   ximena: "ximenaSpre"
@@ -192,6 +192,7 @@ function redirectToLogin() {
 function logout() {
   clearSession();
   closeModal();
+  managePrivateListeners();
   showToast("Sesion cerrada");
   location.hash = "login";
   render();
@@ -219,6 +220,7 @@ async function loginUser() {
     if (!response.ok) throw new Error(data.message || "Usuario o contrasena incorrectos");
 
     saveSession(data.token, data.user);
+    managePrivateListeners();
     showToast(`Bienvenida ${data.user?.name || username}`);
     location.hash = "inicio";
     render();
@@ -227,6 +229,7 @@ async function loginUser() {
       const token = makeLocalDevJwt(username);
       const user = { username, name: username === "andrea" ? "Andrea" : "Ximena", role: "staff" };
       saveSession(token, user);
+      managePrivateListeners();
       showToast(`Bienvenida ${user.name}`);
       location.hash = "inicio";
       render();
@@ -330,7 +333,7 @@ function startFirestoreListeners() {
 function render() {
   const route = getRoute();
 
-  if (route === "menu") return renderOnlineMenu();
+  if (route === "menu") return renderMenu();
   if (route === "login") return renderLogin();
 
   if (!isAuthenticated()) return renderLogin();
@@ -654,55 +657,6 @@ function kitchenItemRow(ticket, item, index) {
         }
       </div>
     </div>
-  `;
-}
-
-function renderOnlineMenu() {
-  const activeProducts = products.filter((product) => product.active !== false);
-  const grouped = groupProducts(activeProducts);
-
-  baseLayout(`
-    <section class="card panel online-menu-panel">
-      <div class="online-menu-logo">
-        <img src="/assets/logo-esspreso.png" alt="Logo esspreso cafe y sabor">
-      </div>
-
-      <div class="toolbar">
-        <div class="toolbar-left">
-          <div>
-            <h2 style="margin:0; letter-spacing:-.04em;">Menu en linea</h2>
-            <p style="margin:4px 0 0; color:var(--color-600);">Productos actualizados desde Firebase.</p>
-          </div>
-        </div>
-        <div class="toolbar-right">
-          <button class="btn btn-soft" data-action="show-menu-qr">Codigo QR</button>
-          <button class="btn btn-primary" data-action="export-products-pdf">Guardar PDF</button>
-        </div>
-      </div>
-
-      <div class="online-menu-grid">
-        ${grouped.length ? grouped.map(onlineMenuGroup).join("") : `<div class="empty-state">No hay productos activos para mostrar.</div>`}
-      </div>
-    </section>
-  `);
-}
-
-function onlineMenuGroup(group) {
-  return `
-    <section class="online-menu-group">
-      <h3>${escapeHtml(group.category)}</h3>
-      <div class="online-menu-items">
-        ${group.items.map((product) => `
-          <article class="online-menu-item">
-            <div>
-              <strong>${escapeHtml(product.name || "Producto")}</strong>
-              ${product.description ? `<p>${escapeHtml(product.description)}</p>` : ""}
-            </div>
-            <span>${formatMoney(product.price)}</span>
-          </article>
-        `).join("")}
-      </div>
-    </section>
   `;
 }
 
@@ -2747,22 +2701,54 @@ function handleChange(event) {
   }
 }
 
+function stopFirestoreListeners() {
+  unsubscribeProducts?.();
+  unsubscribeActiveTickets?.();
+
+  unsubscribeProducts = null;
+  unsubscribeActiveTickets = null;
+
+  products = [];
+  activeTickets = [];
+}
+
+function managePrivateListeners() {
+  const route = getRoute();
+
+  if (route === "menu" || route === "login" || !isAuthenticated()) {
+    stopFirestoreListeners();
+    return;
+  }
+
+  if (!unsubscribeProducts || !unsubscribeActiveTickets) {
+    startFirestoreListeners();
+  }
+}
+
 function init() {
   document.addEventListener("click", handleClick);
   document.addEventListener("change", handleChange);
   document.addEventListener("submit", handleSubmit);
+
   modalRoot.addEventListener("click", (event) => {
     if (event.target === modalRoot) closeModal();
   });
-  window.addEventListener("hashchange", render);
+
+  window.addEventListener("hashchange", () => {
+    managePrivateListeners();
+    render();
+  });
+
   window.setInterval(() => {
     if (!PUBLIC_ROUTES.includes(getRoute()) && !isAuthenticated()) {
       showToast("Sesion caducada");
       redirectToLogin();
+      managePrivateListeners();
       render();
     }
   }, 60000);
-  startFirestoreListeners();
+
+  managePrivateListeners();
   render();
 }
 
