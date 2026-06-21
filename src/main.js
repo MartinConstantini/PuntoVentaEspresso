@@ -1121,28 +1121,61 @@ async function deleteTicket(ticketId) {
 
 function openProductModal(productId = null) {
   const product = productId ? products.find((item) => item.id === productId) : null;
-  const categories = [...new Set([...categoryBase, ...products.map((item) => item.category).filter(Boolean)])];
+
+  const categories = [
+    ...new Set([
+      ...categoryBase,
+      ...products.map((item) => item.category).filter(Boolean)
+    ])
+  ];
+
+  const selectedCategory = product?.category || categories[0] || "";
+
   openModal(product ? "Editar producto" : "Nuevo producto", `
     <div class="form-grid">
       <div class="form-group">
         <label for="product-name">Nombre</label>
-        <input id="product-name" value="${escapeHtml(product?.name || "")}" placeholder="Latte, Crepa clasica...">
+        <input 
+          id="product-name" 
+          value="${escapeHtml(product?.name || "")}" 
+          placeholder="Latte, Crepa clasica..."
+        >
       </div>
+
       <div class="form-group">
         <label for="product-category">Categoria</label>
-        <input id="product-category" list="category-list" value="${escapeHtml(product?.category || categories[0] || "")}" placeholder="Bebidas frias">
-        <datalist id="category-list">${categories.map((item) => `<option value="${escapeHtml(item)}"></option>`).join("")}</datalist>
+        <select id="product-category">
+          ${categories.map((item) => `
+            <option value="${escapeHtml(item)}" ${item === selectedCategory ? "selected" : ""}>
+              ${escapeHtml(item)}
+            </option>
+          `).join("")}
+        </select>
       </div>
+
       <div class="form-group">
         <label for="product-price">Precio</label>
-        <input id="product-price" type="number" min="0" step="1" value="${escapeHtml(product?.price ?? "")}" placeholder="60">
+        <input 
+          id="product-price" 
+          type="number" 
+          min="0" 
+          step="1" 
+          value="${escapeHtml(product?.price ?? "")}" 
+          placeholder="60"
+        >
       </div>
+
       <div class="form-group">
         <label for="product-image">Imagen tipo</label>
         <select id="product-image">
-          ${Object.keys(imageMap).map((key) => `<option value="${key}" ${product?.imageTag === key ? "selected" : ""}>${key}</option>`).join("")}
+          ${Object.keys(imageMap).map((key) => `
+            <option value="${key}" ${product?.imageTag === key ? "selected" : ""}>
+              ${key}
+            </option>
+          `).join("")}
         </select>
       </div>
+
       <div class="form-group">
         <label for="product-active">Estado</label>
         <select id="product-active">
@@ -1150,6 +1183,7 @@ function openProductModal(productId = null) {
           <option value="false" ${product?.active === false ? "selected" : ""}>Inactivo</option>
         </select>
       </div>
+
       <div class="form-group full">
         <label for="product-description">Descripcion</label>
         <textarea id="product-description" placeholder="Descripcion corta">${escapeHtml(product?.description || "")}</textarea>
