@@ -115,12 +115,14 @@ function closeModal() {
 
 function baseLayout(content) {
   const route = getRoute();
+
   const isHome = route === "inicio";
+  const isPublicMenu = route === "menu";
 
   appEl.innerHTML = `
-    <main class="app-shell ${isHome ? "home-shell" : ""}">
+    <main class="app-shell ${isHome ? "home-shell" : ""} ${isPublicMenu ? "public-menu-shell" : ""}">
       ${
-        !isHome
+        !isHome && !isPublicMenu
           ? `
             <header class="page-topbar page-topbar-short">
               <button class="btn btn-outline btn-home" data-route="inicio">← Inicio</button>
@@ -135,13 +137,11 @@ function baseLayout(content) {
           : ""
       }
 
-      ${configWarning()}
+      ${!isPublicMenu ? configWarning() : ""}
       ${content}
     </main>
   `;
 }
-
-
 
 
 function navButton(route, label, currentRoute) {
