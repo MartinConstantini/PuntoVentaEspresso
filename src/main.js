@@ -81,7 +81,7 @@ function getRoute() {
 }
 
 function routeTitle(route) {
-  const names = { inicio: "Inicio", venta: "Venta", productos: "Productos", finanzas: "Finanzas" };
+  const names = { inicio: "Inicio", venta: "Venta", productos: "Productos", cocina: "Cocina", finanzas: "Finanzas", menu: "Menu" };
   return names[route] || "Inicio";
 }
 
@@ -182,7 +182,9 @@ function render() {
   const route = getRoute();
   if (route === "venta") return renderSales();
   if (route === "productos") return renderProducts();
+  if (route === "cocina") return renderKitchen();
   if (route === "finanzas") return renderFinance();
+  if (route === "menu") return renderOnlineMenu();
   return renderHome();
 }
 
@@ -206,6 +208,13 @@ function renderHome() {
           "🥐",
           "Productos",
           "Agrega, modifica o elimina productos y precios guardados en Firebase."
+        )}
+
+        ${homeSimpleCard(
+          "cocina",
+          "🍳",
+          "Cocina",
+          "Revisa ordenes activas y marca productos como preparados."
         )}
 
         ${homeSimpleCard(
@@ -281,6 +290,39 @@ function displayTicketDate(timestamp) {
   return displayDate(new Date(timestamp.seconds * 1000));
 }
 
+function itemKitchenStatus(item) {
+  return item?.kitchenStatus || "preparacion";
+}
+
+function isItemPrepared(item) {
+  return itemKitchenStatus(item) === "preparado";
+}
+
+function hasPreparedItems(ticket) {
+  return (ticket?.items || []).some(isItemPrepared);
+}
+
+function kitchenStatusLabel(status) {
+  return status === "preparado" ? "Preparado" : "Preparacion";
+}
+
+function kitchenStatusClass(status) {
+  return status === "preparado" ? "status-prepared" : "status-preparation";
+}
+
+function makeLineId() {
+  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function getOnlineMenuUrl() {
+  const baseUrl = `${window.location.origin}${window.location.pathname}`;
+  return `${baseUrl}#menu`;
+}
+
+function getQrImageUrl(size = 360) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(getOnlineMenuUrl())}`;
+}
+
 function renderProducts() {
   const grouped = groupProducts(products);
   baseLayout(`
@@ -293,7 +335,10 @@ function renderProducts() {
           </div>
         </div>
         <div class="toolbar-right">
-          <button class="btn btn-soft" data-action="seed-products">Cargar productos base</button>
+          <button class="btn btn-outline" data-action="view-menu-online">Ver menu online</button>
+          <button class="btn btn-soft" data-action="show-menu-qr">Codigo QR</button>
+          <button class="btn btn-soft" data-action="export-products-pdf">Exportar PDF</button>
+          <button class="btn btn-outline" data-action="seed-products">Cargar productos base</button>
           <button class="btn btn-primary" data-action="new-product">+ Nuevo producto</button>
         </div>
       </div>
@@ -337,6 +382,132 @@ function productRowMini(product) {
         <button class="icon-btn" title="Eliminar" data-action="delete-product" data-id="${product.id}">🗑</button>
       </div>
     </div>
+  `;
+}
+
+
+function renderKitchen() {
+  const ticketsWithItems = activeTickets.filter((ticket) => (ticket.items || []).length > 0);
+  const totalItems = ticketsWithItems.reduce((sum, ticket) => sum + (ticket.items || []).reduce((itemSum, item) => itemSum + Number(item.qty || 0), 0), 0);
+  const pendingItems = ticketsWithItems.reduce((sum, ticket) => sum + (ticket.items || []).filter((item) => !isItemPrepared(item)).length, 0);
+  const preparedItems = ticketsWithItems.reduce((sum, ticket) => sum + (ticket.items || []).filter(isItemPrepared).length, 0);
+
+  baseLayout(`
+    <section class="card panel kitchen-panel">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div>
+            <h2 style="margin:0; letter-spacing:-.04em;">Cocina</h2>
+            <p style="margin:4px 0 0; color:var(--color-600);">Ordenes activas en tiempo real.</p>
+          </div>
+        </div>
+        <div class="toolbar-right kitchen-toolbar-info">
+          <span class="badge badge-red">${pendingItems} en preparacion</span>
+          <span class="badge badge-green">${preparedItems} preparados</span>
+          <span class="badge">${totalItems} producto(s)</span>
+        </div>
+      </div>
+
+      <div class="kitchen-board">
+        ${ticketsWithItems.length ? ticketsWithItems.map(kitchenTicketCard).join("") : `<div class="empty-state">No hay ordenes activas para cocina.</div>`}
+      </div>
+    </section>
+  `);
+}
+
+function kitchenTicketCard(ticket) {
+  const items = ticket.items || [];
+  const pending = items.filter((item) => !isItemPrepared(item)).length;
+  const prepared = items.filter(isItemPrepared).length;
+
+  return `
+    <article class="kitchen-ticket card">
+      <header class="kitchen-ticket-header">
+        <div>
+          <span class="badge badge-dark">${escapeHtml(ticket.type || "mesa")}</span>
+          <h3>${escapeHtml(ticket.name || ticket.alias || "Ticket")}</h3>
+          <p>${escapeHtml(displayTicketDate(ticket.createdAt))} · ${items.length} linea(s)</p>
+        </div>
+        <div class="kitchen-counts">
+          <span class="badge badge-red">${pending} pendientes</span>
+          <span class="badge badge-green">${prepared} listos</span>
+        </div>
+      </header>
+
+      <div class="kitchen-items">
+        ${items.map((item, index) => kitchenItemRow(ticket, item, index)).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function kitchenItemRow(ticket, item, index) {
+  const status = itemKitchenStatus(item);
+  const prepared = isItemPrepared(item);
+
+  return `
+    <div class="kitchen-item ${kitchenStatusClass(status)}">
+      <div class="kitchen-item-main">
+        <strong>${Number(item.qty || 0)} x ${escapeHtml(item.name || "Producto")}</strong>
+        <span>${escapeHtml(item.category || "Sin categoria")}</span>
+      </div>
+      <div class="kitchen-item-actions">
+        <span class="kitchen-status-pill ${kitchenStatusClass(status)}">${kitchenStatusLabel(status)}</span>
+        ${prepared
+          ? `<button class="btn btn-small btn-outline" disabled>Listo</button>`
+          : `<button class="btn btn-small btn-primary" data-action="mark-item-prepared" data-id="${ticket.id}" data-index="${index}">Marcar preparado</button>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderOnlineMenu() {
+  const activeProducts = products.filter((product) => product.active !== false);
+  const grouped = groupProducts(activeProducts);
+
+  baseLayout(`
+    <section class="card panel online-menu-panel">
+      <div class="online-menu-logo">
+        <img src="/assets/logo-esspreso.png" alt="Logo esspreso cafe y sabor">
+      </div>
+
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div>
+            <h2 style="margin:0; letter-spacing:-.04em;">Menu en linea</h2>
+            <p style="margin:4px 0 0; color:var(--color-600);">Productos actualizados desde Firebase.</p>
+          </div>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn btn-soft" data-action="show-menu-qr">Codigo QR</button>
+          <button class="btn btn-primary" data-action="export-products-pdf">Guardar PDF</button>
+        </div>
+      </div>
+
+      <div class="online-menu-grid">
+        ${grouped.length ? grouped.map(onlineMenuGroup).join("") : `<div class="empty-state">No hay productos activos para mostrar.</div>`}
+      </div>
+    </section>
+  `);
+}
+
+function onlineMenuGroup(group) {
+  return `
+    <section class="online-menu-group">
+      <h3>${escapeHtml(group.category)}</h3>
+      <div class="online-menu-items">
+        ${group.items.map((product) => `
+          <article class="online-menu-item">
+            <div>
+              <strong>${escapeHtml(product.name || "Producto")}</strong>
+              ${product.description ? `<p>${escapeHtml(product.description)}</p>` : ""}
+            </div>
+            <span>${formatMoney(product.price)}</span>
+          </article>
+        `).join("")}
+      </div>
+    </section>
   `;
 }
 
@@ -941,16 +1112,23 @@ async function createTicket() {
 function openTicketModal(ticketId) {
   const ticket = activeTickets.find((item) => item.id === ticketId);
   if (!ticket) return showToast("No se encontro el ticket");
+
   const activeProducts = products.filter((product) => product.active !== false);
   const categories = [...new Set(activeProducts.map((product) => product.category || "Sin categoria"))];
   const firstCategory = categories[0] || "";
   const productOptions = productOptionsByCategory(firstCategory);
+  const preparedLock = hasPreparedItems(ticket);
+
   openModal(`Orden: ${ticket.name || "Ticket"}`, `
     <div class="ticket-meta">
       <span class="badge badge-dark">${escapeHtml(ticket.type || "mesa")}</span>
       <span class="badge">${escapeHtml(displayTicketDate(ticket.createdAt))}</span>
       <span class="badge">${(ticket.items || []).length} linea(s)</span>
+      ${preparedLock ? `<span class="badge badge-green">Tiene productos preparados</span>` : `<span class="badge badge-red">En preparacion</span>`}
     </div>
+
+    ${preparedLock ? `<div class="alert">Los productos marcados como preparados ya no se pueden modificar ni eliminar.</div>` : ""}
+
     <div class="form-grid">
       <div class="form-group">
         <label for="ticket-category">Categoria</label>
@@ -993,21 +1171,31 @@ function ticketItemsTable(ticket) {
   return `
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Producto</th><th>Precio</th><th>Cantidad</th><th>Subtotal</th><th></th></tr></thead>
+        <thead><tr><th>Producto</th><th>Estado cocina</th><th>Precio</th><th>Cantidad</th><th>Subtotal</th><th></th></tr></thead>
         <tbody>
-          ${items.map((item, index) => `
-            <tr>
-              <td>${escapeHtml(item.name)}<br><span style="color:var(--color-600); font-size:12px;">${escapeHtml(item.category || "")}</span></td>
-              <td>${formatMoney(item.price)}</td>
-              <td>
-                <span class="qty-control">
-                  <input type="number" min="1" value="${Number(item.qty || 1)}" data-action="change-qty" data-id="${ticket.id}" data-index="${index}">
-                </span>
-              </td>
-              <td><strong>${formatMoney(item.subtotal)}</strong></td>
-              <td><button class="icon-btn" data-action="remove-item" data-id="${ticket.id}" data-index="${index}" title="Eliminar">🗑</button></td>
-            </tr>
-          `).join("")}
+          ${items.map((item, index) => {
+            const prepared = isItemPrepared(item);
+            const status = itemKitchenStatus(item);
+            return `
+              <tr class="${prepared ? "ticket-row-prepared" : "ticket-row-preparation"}">
+                <td>${escapeHtml(item.name)}<br><span style="color:var(--color-600); font-size:12px;">${escapeHtml(item.category || "")}</span></td>
+                <td><span class="status-mini ${kitchenStatusClass(status)}">${kitchenStatusLabel(status)}</span></td>
+                <td>${formatMoney(item.price)}</td>
+                <td>
+                  <span class="qty-control">
+                    <input type="number" min="1" value="${Number(item.qty || 1)}" data-action="change-qty" data-id="${ticket.id}" data-index="${index}" ${prepared ? "disabled" : ""}>
+                  </span>
+                </td>
+                <td><strong>${formatMoney(item.subtotal)}</strong></td>
+                <td>
+                  ${prepared
+                    ? `<button class="icon-btn" title="Producto preparado" disabled>🔒</button>`
+                    : `<button class="icon-btn" data-action="remove-item" data-id="${ticket.id}" data-index="${index}" title="Eliminar">🗑</button>`
+                  }
+                </td>
+              </tr>
+            `;
+          }).join("")}
         </tbody>
       </table>
     </div>
@@ -1022,31 +1210,45 @@ async function addItemToTicket(ticketId) {
   if (!ticket || !product) return showToast("Selecciona un producto valido");
 
   const items = [...(ticket.items || [])];
-  const existing = items.find((item) => item.productId === product.id && item.price === product.price);
+  const existing = items.find((item) => item.productId === product.id && item.price === product.price && !isItemPrepared(item));
+
   if (existing) {
     existing.qty = Number(existing.qty || 0) + qty;
     existing.subtotal = existing.qty * Number(existing.price || 0);
+    existing.kitchenStatus = itemKitchenStatus(existing);
+    existing.kitchenUpdatedAt = new Date().toISOString();
   } else {
     items.push({
+      lineId: makeLineId(),
       productId: product.id,
       name: product.name,
       category: product.category,
       price: Number(product.price || 0),
       qty,
-      subtotal: Number(product.price || 0) * qty
+      subtotal: Number(product.price || 0) * qty,
+      kitchenStatus: "preparacion",
+      kitchenCreatedAt: new Date().toISOString(),
+      kitchenUpdatedAt: new Date().toISOString()
     });
   }
+
   await saveTicketItems(ticketId, items);
-  showToast("Producto agregado");
+  showToast("Producto agregado a cocina");
   openTicketModal(ticketId);
 }
 
 async function saveTicketItems(ticketId, items) {
-  const total = items.reduce((sum, item) => sum + Number(item.subtotal || 0), 0);
+  const normalizedItems = items.map((item) => ({
+    ...item,
+    lineId: item.lineId || makeLineId(),
+    kitchenStatus: itemKitchenStatus(item),
+    subtotal: Number(item.qty || 0) * Number(item.price || 0)
+  }));
+  const total = normalizedItems.reduce((sum, item) => sum + Number(item.subtotal || 0), 0);
   const index = activeTickets.findIndex((item) => item.id === ticketId);
-  if (index >= 0) activeTickets[index] = { ...activeTickets[index], items, total };
+  if (index >= 0) activeTickets[index] = { ...activeTickets[index], items: normalizedItems, total };
   await updateDoc(doc(db, "tickets", ticketId), {
-    items,
+    items: normalizedItems,
     total,
     updatedAt: serverTimestamp()
   });
@@ -1055,8 +1257,13 @@ async function saveTicketItems(ticketId, items) {
 async function removeItem(ticketId, itemIndex) {
   const ticket = activeTickets.find((item) => item.id === ticketId);
   if (!ticket) return;
+
   const items = [...(ticket.items || [])];
-  items.splice(Number(itemIndex), 1);
+  const index = Number(itemIndex);
+  if (!items[index]) return;
+  if (isItemPrepared(items[index])) return showToast("No puedes eliminar un producto preparado");
+
+  items.splice(index, 1);
   await saveTicketItems(ticketId, items);
   showToast("Producto eliminado");
   openTicketModal(ticketId);
@@ -1067,11 +1274,17 @@ async function changeQty(input) {
   const itemIndex = Number(input.dataset.index);
   const ticket = activeTickets.find((item) => item.id === ticketId);
   if (!ticket) return;
+
   const items = [...(ticket.items || [])];
   const qty = Math.max(1, Number(input.value || 1));
   if (!items[itemIndex]) return;
+  if (isItemPrepared(items[itemIndex])) return showToast("No puedes modificar un producto preparado");
+
   items[itemIndex].qty = qty;
   items[itemIndex].subtotal = qty * Number(items[itemIndex].price || 0);
+  items[itemIndex].kitchenStatus = itemKitchenStatus(items[itemIndex]);
+  items[itemIndex].kitchenUpdatedAt = new Date().toISOString();
+
   await saveTicketItems(ticketId, items);
   openTicketModal(ticketId);
 }
@@ -1113,11 +1326,33 @@ async function finishTicket(ticketId) {
 }
 
 async function deleteTicket(ticketId) {
+  const ticket = activeTickets.find((item) => item.id === ticketId);
+  if (hasPreparedItems(ticket)) return showToast("No puedes eliminar un ticket con productos preparados");
   if (!window.confirm("Seguro que quieres cancelar y eliminar este ticket activo?")) return;
   await deleteDoc(doc(db, "tickets", ticketId));
   closeModal();
   showToast("Ticket cancelado");
 }
+
+async function markKitchenItemPrepared(ticketId, itemIndex) {
+  const ticket = activeTickets.find((item) => item.id === ticketId);
+  if (!ticket) return showToast("No se encontro el ticket");
+
+  const items = [...(ticket.items || [])];
+  const index = Number(itemIndex);
+  if (!items[index]) return showToast("No se encontro el producto");
+  if (isItemPrepared(items[index])) return showToast("El producto ya esta preparado");
+
+  items[index] = {
+    ...items[index],
+    kitchenStatus: "preparado",
+    kitchenUpdatedAt: new Date().toISOString()
+  };
+
+  await saveTicketItems(ticketId, items);
+  showToast("Producto marcado como preparado");
+}
+
 
 function openProductModal(productId = null) {
   const product = productId ? products.find((item) => item.id === productId) : null;
@@ -1229,6 +1464,129 @@ async function seedProducts() {
   showToast("Productos base cargados");
 }
 
+function openMenuQrModal() {
+  const url = getOnlineMenuUrl();
+  openModal("Codigo QR del menu", `
+    <div class="qr-panel">
+      <div class="qr-card">
+        <img src="${getQrImageUrl(360)}" alt="Codigo QR del menu en linea">
+      </div>
+      <div class="qr-info">
+        <h3>Menu en linea</h3>
+        <p>Escanea este codigo para abrir el menu actualizado sin imprimirlo.</p>
+        <input value="${escapeHtml(url)}" readonly>
+      </div>
+    </div>
+  `, `
+    <button class="btn btn-outline" data-action="close-modal">Cerrar</button>
+    <button class="btn btn-soft" data-action="copy-menu-link">Copiar link</button>
+    <button class="btn btn-primary" data-action="view-menu-online">Abrir menu</button>
+  `);
+}
+
+async function copyMenuLink() {
+  try {
+    await navigator.clipboard.writeText(getOnlineMenuUrl());
+    showToast("Link copiado");
+  } catch (error) {
+    showToast("No se pudo copiar el link");
+  }
+}
+
+function viewOnlineMenu() {
+  closeModal();
+  location.hash = "menu";
+}
+
+function exportProductsPdf() {
+  if (!window.jspdf) return showToast("No se pudo cargar jsPDF");
+  const { jsPDF } = window.jspdf;
+  const docPdf = new jsPDF();
+  const activeProducts = products.filter((product) => product.active !== false);
+  const grouped = groupProducts(activeProducts);
+  const pageWidth = docPdf.internal.pageSize.getWidth();
+  const pageHeight = docPdf.internal.pageSize.getHeight();
+  const margin = 14;
+  let y = 18;
+
+  docPdf.setFillColor(30, 41, 32);
+  docPdf.roundedRect(margin, y, pageWidth - margin * 2, 30, 6, 6, "F");
+  docPdf.setTextColor(240, 244, 241);
+  docPdf.setFont("helvetica", "bold");
+  docPdf.setFontSize(22);
+  docPdf.text("esspreso", pageWidth / 2, y + 12, { align: "center" });
+  docPdf.setFontSize(10);
+  docPdf.setFont("helvetica", "normal");
+  docPdf.text("Menu actualizado de productos", pageWidth / 2, y + 21, { align: "center" });
+
+  y += 42;
+  docPdf.setTextColor(11, 15, 12);
+  docPdf.setFontSize(10);
+  docPdf.text(`Generado: ${displayDate(new Date())}`, margin, y);
+  docPdf.text(`Productos activos: ${activeProducts.length}`, pageWidth - margin, y, { align: "right" });
+  y += 10;
+
+  grouped.forEach((group) => {
+    if (y > pageHeight - 38) {
+      docPdf.addPage();
+      y = 18;
+    }
+
+    docPdf.setFillColor(214, 225, 216);
+    docPdf.roundedRect(margin, y, pageWidth - margin * 2, 10, 3, 3, "F");
+    docPdf.setTextColor(30, 41, 32);
+    docPdf.setFont("helvetica", "bold");
+    docPdf.setFontSize(12);
+    docPdf.text(group.category, margin + 4, y + 7);
+    y += 15;
+
+    group.items.forEach((product) => {
+      if (y > pageHeight - 24) {
+        docPdf.addPage();
+        y = 18;
+      }
+
+      docPdf.setTextColor(11, 15, 12);
+      docPdf.setFont("helvetica", "bold");
+      docPdf.setFontSize(11);
+      const productName = String(product.name || "Producto");
+      const wrappedName = docPdf.splitTextToSize(productName, 125);
+      docPdf.text(wrappedName, margin + 2, y);
+      docPdf.text(formatMoney(product.price), pageWidth - margin, y, { align: "right" });
+      y += wrappedName.length * 5;
+
+      if (product.description) {
+        docPdf.setFont("helvetica", "normal");
+        docPdf.setFontSize(9);
+        docPdf.setTextColor(89, 120, 95);
+        const wrappedDescription = docPdf.splitTextToSize(String(product.description), 150);
+        docPdf.text(wrappedDescription, margin + 2, y);
+        y += wrappedDescription.length * 4;
+      }
+
+      docPdf.setDrawColor(214, 225, 216);
+      docPdf.line(margin + 2, y + 1, pageWidth - margin - 2, y + 1);
+      y += 7;
+    });
+
+    y += 3;
+  });
+
+  const url = getOnlineMenuUrl();
+  if (y > pageHeight - 28) {
+    docPdf.addPage();
+    y = 18;
+  }
+  docPdf.setTextColor(61, 82, 65);
+  docPdf.setFont("helvetica", "normal");
+  docPdf.setFontSize(9);
+  docPdf.text("Menu en linea:", margin, y);
+  y += 5;
+  docPdf.text(url, margin, y);
+
+  docPdf.save(`menu_esspreso_${getDateKey(new Date())}.pdf`);
+}
+
 function updateProductSelect() {
   const category = document.querySelector("#ticket-category")?.value;
   const select = document.querySelector("#ticket-product");
@@ -1287,12 +1645,17 @@ function handleClick(event) {
   if (action === "pay-ticket") return openPayModal(id);
   if (action === "finish-ticket") return finishTicket(id).catch((error) => showToast(error.message));
   if (action === "delete-ticket") return deleteTicket(id).catch((error) => showToast(error.message));
+  if (action === "mark-item-prepared") return markKitchenItemPrepared(id, actionEl.dataset.index).catch((error) => showToast(error.message));
 
   if (action === "new-product") return openProductModal();
   if (action === "edit-product") return openProductModal(id);
   if (action === "save-product") return saveProduct(id).catch((error) => showToast(error.message));
   if (action === "delete-product") return deleteProduct(id).catch((error) => showToast(error.message));
   if (action === "seed-products") return seedProducts().catch((error) => showToast(error.message));
+  if (action === "export-products-pdf") return exportProductsPdf();
+  if (action === "show-menu-qr") return openMenuQrModal();
+  if (action === "copy-menu-link") return copyMenuLink();
+  if (action === "view-menu-online") return viewOnlineMenu();
 
   if (action === "view-finished-ticket") return openFinishedTicketModal(id);
   if (action === "print-ticket") return printSingleTicket(id);

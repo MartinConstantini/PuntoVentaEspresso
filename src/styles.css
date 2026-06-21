@@ -1085,3 +1085,306 @@ tr:last-child td {
     grid-template-columns: 1fr;
   }
 }
+
+/* =========================================================
+   ACTUALIZACION: COCINA, MENU ONLINE, QR Y PDF PRODUCTOS
+========================================================= */
+
+.home-cards-clean {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.badge-red {
+  color: #7a1515;
+  background: #ffe3e3;
+}
+
+.badge-green {
+  color: #1f5c2d;
+  background: #dff4e4;
+}
+
+.kitchen-panel {
+  overflow: hidden;
+}
+
+.kitchen-toolbar-info {
+  justify-content: flex-end;
+}
+
+.kitchen-board {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.kitchen-ticket {
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.kitchen-ticket-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.kitchen-ticket-header h3 {
+  margin: 10px 0 4px;
+  font-size: clamp(20px, 3vw, 28px);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.kitchen-ticket-header p {
+  margin: 0;
+  color: var(--color-600);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.kitchen-counts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kitchen-items {
+  display: grid;
+  gap: 10px;
+}
+
+.kitchen-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid transparent;
+}
+
+.kitchen-item.status-preparation {
+  border-color: rgba(166, 61, 61, 0.28);
+  background: #fff1f1;
+}
+
+.kitchen-item.status-prepared {
+  border-color: rgba(89, 120, 95, 0.28);
+  background: #eef8f0;
+}
+
+.kitchen-item-main {
+  display: grid;
+  gap: 4px;
+}
+
+.kitchen-item-main strong {
+  color: var(--color-950);
+  font-size: 18px;
+}
+
+.kitchen-item-main span {
+  color: var(--color-600);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.kitchen-item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kitchen-status-pill,
+.status-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.kitchen-status-pill.status-preparation,
+.status-mini.status-preparation {
+  color: #7a1515;
+  background: #ffd8d8;
+}
+
+.kitchen-status-pill.status-prepared,
+.status-mini.status-prepared {
+  color: #1f5c2d;
+  background: #d8f2dd;
+}
+
+.ticket-row-preparation {
+  background: rgba(255, 241, 241, 0.55);
+}
+
+.ticket-row-prepared {
+  background: rgba(238, 248, 240, 0.85);
+}
+
+.online-menu-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.online-menu-logo img {
+  width: min(320px, 76%);
+  height: auto;
+  object-fit: contain;
+}
+
+.online-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.online-menu-group {
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(61, 82, 65, 0.10);
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(11, 15, 12, 0.06);
+}
+
+.online-menu-group h3 {
+  margin: 0 0 12px;
+  color: var(--color-900);
+  font-size: 24px;
+  letter-spacing: -0.05em;
+}
+
+.online-menu-items {
+  display: grid;
+  gap: 10px;
+}
+
+.online-menu-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(61, 82, 65, 0.08);
+}
+
+.online-menu-item strong {
+  display: block;
+  color: var(--color-950);
+}
+
+.online-menu-item p {
+  margin: 4px 0 0;
+  color: var(--color-600);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.online-menu-item span {
+  color: var(--color-900);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.qr-panel {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 18px;
+  align-items: center;
+}
+
+.qr-card {
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  border-radius: 24px;
+  background: #ffffff;
+  border: 1px solid rgba(61, 82, 65, 0.10);
+}
+
+.qr-card img {
+  width: 100%;
+  height: auto;
+  border-radius: 14px;
+}
+
+.qr-info h3 {
+  margin: 0 0 8px;
+  font-size: 26px;
+  letter-spacing: -0.05em;
+}
+
+.qr-info p {
+  margin: 0 0 14px;
+  color: var(--color-600);
+  line-height: 1.55;
+}
+
+@media (max-width: 1100px) {
+  .home-cards-clean {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 920px) {
+  .home-cards-clean {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kitchen-board,
+  .online-menu-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .home-cards-clean {
+    grid-template-columns: 1fr;
+  }
+
+  .kitchen-ticket-header,
+  .kitchen-item {
+    grid-template-columns: 1fr;
+  }
+
+  .kitchen-ticket-header {
+    display: grid;
+  }
+
+  .kitchen-counts,
+  .kitchen-item-actions {
+    justify-content: stretch;
+  }
+
+  .kitchen-item-actions .btn,
+  .kitchen-status-pill {
+    width: 100%;
+  }
+
+  .qr-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .qr-card {
+    width: min(100%, 300px);
+    margin: 0 auto;
+  }
+}
