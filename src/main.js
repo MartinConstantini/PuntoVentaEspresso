@@ -27,6 +27,17 @@ let paymentChart = null;
 let unsubscribeProducts = null;
 let unsubscribeActiveTickets = null;
 
+const SESSION_KEY = "esspreso_jwt";
+const USER_KEY = "esspreso_user";
+const PUBLIC_ROUTES = ["menu", "login"];
+const TOKEN_HOURS = 10;
+const DEV_USERS = {
+  andrea: "andreaSpre",
+  ximena: "ximenaSpre"
+};
+
+let authUser = getSavedUser();
+
 const categoryBase = [
   "Ensaladas", "Sandwich", "Hamburguesas", "Combos", "Bowl", "Tortas", "Baguette",
   "Bebidas calientes", "Bebidas frias", "Base horchata", "Otras bebidas", "Malteadas",
@@ -81,7 +92,15 @@ function getRoute() {
 }
 
 function routeTitle(route) {
-  const names = { inicio: "Inicio", venta: "Venta", productos: "Productos", cocina: "Cocina", finanzas: "Finanzas", menu: "Menu" };
+  const names = {
+    inicio: "Inicio",
+    venta: "Venta",
+    productos: "Productos",
+    cocina: "Cocina",
+    finanzas: "Finanzas",
+    menu: "Menu",
+    login: "Login"
+  };
   return names[route] || "Inicio";
 }
 
@@ -90,6 +109,132 @@ function showToast(message) {
   toastEl.classList.add("show");
   window.clearTimeout(showToast.timer);
   showToast.timer = window.setTimeout(() => toastEl.classList.remove("show"), 2300);
+}
+
+function base64UrlToJson(value = "") {
+  try {
+    const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(base64.length + (4 - base64.length % 4) % 4, "=");
+    return JSON.parse(decodeURIComponent(escape(window.atob(padded))));
+  } catch (error) {
+    return null;
+  }
+}
+
+function decodeJwt(token = "") {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  return base64UrlToJson(parts[1]);
+}
+
+function getStoredToken() {
+  return localStorage.getItem(SESSION_KEY) || "";
+}
+
+function getSavedUser() {
+  const token = getStoredToken();
+  const payload = decodeJwt(token);
+
+  if (!payload?.exp || payload.exp * 1000 <= Date.now()) {
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(USER_KEY);
+    return null;
+  }
+
+  try {
+    return JSON.parse(localStorage.getItem(USER_KEY) || "null") || { username: payload.username };
+  } catch (error) {
+    return { username: payload.username };
+  }
+}
+
+function isAuthenticated() {
+  authUser = getSavedUser();
+  return Boolean(authUser);
+}
+
+function saveSession(token, user) {
+  localStorage.setItem(SESSION_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user || {}));
+  authUser = user || decodeJwt(token);
+}
+
+function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(USER_KEY);
+  authUser = null;
+}
+
+function makeLocalDevJwt(username) {
+  const header = { alg: "none", typ: "JWT" };
+  const payload = {
+    username,
+    name: username === "andrea" ? "Andrea" : "Ximena",
+    role: "staff",
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + TOKEN_HOURS * 60 * 60
+  };
+  const encode = (data) => window.btoa(unescape(encodeURIComponent(JSON.stringify(data))))
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+  return `${encode(header)}.${encode(payload)}.dev`;
+}
+
+function canUseLocalDevLogin() {
+  return ["localhost", "127.0.0.1"].includes(location.hostname) || location.hostname.startsWith("192.168.");
+}
+
+function redirectToLogin() {
+  if (getRoute() !== "login") location.hash = "login";
+}
+
+function logout() {
+  clearSession();
+  closeModal();
+  showToast("Sesion cerrada");
+  location.hash = "login";
+  render();
+}
+
+async function loginUser() {
+  const username = document.querySelector("#login-user")?.value.trim().toLowerCase();
+  const password = document.querySelector("#login-pass")?.value || "";
+  const errorBox = document.querySelector("#login-error");
+
+  if (errorBox) errorBox.textContent = "";
+  if (!username || !password) {
+    if (errorBox) errorBox.textContent = "Escribe usuario y contrasena.";
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || "Usuario o contrasena incorrectos");
+
+    saveSession(data.token, data.user);
+    showToast(`Bienvenida ${data.user?.name || username}`);
+    location.hash = "inicio";
+    render();
+  } catch (error) {
+    if (canUseLocalDevLogin() && DEV_USERS[username] === password) {
+      const token = makeLocalDevJwt(username);
+      const user = { username, name: username === "andrea" ? "Andrea" : "Ximena", role: "staff" };
+      saveSession(token, user);
+      showToast(`Bienvenida ${user.name}`);
+      location.hash = "inicio";
+      render();
+      return;
+    }
+
+    if (errorBox) errorBox.textContent = error.message || "No se pudo iniciar sesion.";
+  }
 }
 
 function openModal(title, body, footer = "") {
@@ -115,14 +260,14 @@ function closeModal() {
 
 function baseLayout(content) {
   const route = getRoute();
-
   const isHome = route === "inicio";
   const isPublicMenu = route === "menu";
+  const isLogin = route === "login";
 
   appEl.innerHTML = `
-    <main class="app-shell ${isHome ? "home-shell" : ""} ${isPublicMenu ? "public-menu-shell" : ""}">
+    <main class="app-shell ${isHome ? "home-shell" : ""} ${isPublicMenu ? "public-menu-shell" : ""} ${isLogin ? "login-shell" : ""}">
       ${
-        !isHome && !isPublicMenu
+        !isHome && !isPublicMenu && !isLogin
           ? `
             <header class="page-topbar page-topbar-short">
               <button class="btn btn-outline btn-home" data-route="inicio">← Inicio</button>
@@ -132,16 +277,20 @@ function baseLayout(content) {
                 alt="Logo esspreso cafe y sabor" 
                 class="page-logo-center"
               >
+
+              <button class="btn btn-outline btn-logout" data-action="logout">Salir</button>
             </header>
           `
           : ""
       }
 
-      ${!isPublicMenu ? configWarning() : ""}
+      ${!isPublicMenu && !isLogin ? configWarning() : ""}
       ${content}
     </main>
   `;
 }
+
+
 
 
 function navButton(route, label, currentRoute) {
@@ -180,17 +329,63 @@ function startFirestoreListeners() {
 
 function render() {
   const route = getRoute();
+
+  if (route === "menu") return renderOnlineMenu();
+  if (route === "login") return renderLogin();
+
+  if (!isAuthenticated()) return renderLogin();
+
   if (route === "venta") return renderSales();
   if (route === "productos") return renderProducts();
   if (route === "cocina") return renderKitchen();
   if (route === "finanzas") return renderFinance();
-  if (route === "menu") return renderOnlineMenu();
   return renderHome();
+}
+
+function renderLogin() {
+  clearSession();
+  baseLayout(`
+    <section class="login-page">
+      <div class="login-card card">
+        <div class="login-logo">
+          <img src="/assets/logo-esspreso.png" alt="Logo esspreso cafe y sabor">
+        </div>
+
+        <div class="login-title">
+          <h1>Inicio de sesion</h1>
+          <p>Ingresa para usar venta, productos, cocina y finanzas.</p>
+        </div>
+
+        <form class="login-form" id="login-form">
+          <div class="form-group">
+            <label for="login-user">Usuario</label>
+            <input id="login-user" autocomplete="username" placeholder="andrea o ximena">
+          </div>
+
+          <div class="form-group">
+            <label for="login-pass">Contrasena</label>
+            <input id="login-pass" type="password" autocomplete="current-password" placeholder="Contrasena">
+          </div>
+
+          <p class="login-error" id="login-error" aria-live="polite"></p>
+
+          <button class="btn btn-primary" type="submit">Entrar</button>
+        </form>
+
+        <p class="login-note">La sesion caduca despues de ${TOKEN_HOURS} horas.</p>
+      </div>
+    </section>
+  `);
 }
 
 function renderHome() {
   baseLayout(`
     <section class="home-start home-start-clean">
+      <div class="home-user-bar">
+        <span>Sesion: ${escapeHtml(authUser?.name || authUser?.username || "Usuario")}</span>
+        <button class="btn btn-outline btn-small" data-action="logout">Salir</button>
+      </div>
+
       <header class="home-logo-header">
         <img src="/assets/logo-esspreso.png" alt="Logo esspreso cafe y sabor">
       </header>
@@ -1627,7 +1822,12 @@ function savePdfReport() {
 function handleClick(event) {
   const routeBtn = event.target.closest("[data-route]");
   if (routeBtn) {
-    location.hash = routeBtn.dataset.route;
+    const nextRoute = routeBtn.dataset.route;
+    if (!PUBLIC_ROUTES.includes(nextRoute) && !isAuthenticated()) {
+      redirectToLogin();
+      return;
+    }
+    location.hash = nextRoute;
     return;
   }
 
@@ -1637,6 +1837,8 @@ function handleClick(event) {
   const id = actionEl.dataset.id;
 
   if (action === "close-modal") return closeModal();
+  if (action === "logout") return logout();
+  if (action === "login") return loginUser();
   if (action === "new-ticket") return openNewTicketModal();
   if (action === "create-ticket") return createTicket().catch((error) => showToast(error.message));
   if (action === "open-ticket") return openTicketModal(id);
@@ -1665,6 +1867,13 @@ function handleClick(event) {
 
 }
 
+function handleSubmit(event) {
+  if (event.target?.id === "login-form") {
+    event.preventDefault();
+    loginUser();
+  }
+}
+
 function handleChange(event) {
   const action = event.target.dataset.action;
   if (action === "ticket-category-change") return updateProductSelect();
@@ -1678,10 +1887,18 @@ function handleChange(event) {
 function init() {
   document.addEventListener("click", handleClick);
   document.addEventListener("change", handleChange);
+  document.addEventListener("submit", handleSubmit);
   modalRoot.addEventListener("click", (event) => {
     if (event.target === modalRoot) closeModal();
   });
   window.addEventListener("hashchange", render);
+  window.setInterval(() => {
+    if (!PUBLIC_ROUTES.includes(getRoute()) && !isAuthenticated()) {
+      showToast("Sesion caducada");
+      redirectToLogin();
+      render();
+    }
+  }, 60000);
   startFirestoreListeners();
   render();
 }

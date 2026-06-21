@@ -1388,3 +1388,150 @@ input:disabled {
     margin: 0 auto;
   }
 }
+
+/* ===== LOGIN CON JWT ===== */
+.login-shell {
+  width: min(520px, calc(100% - 18px));
+  min-height: 100vh;
+  display: grid;
+  align-items: center;
+  padding-top: 24px;
+  padding-bottom: 24px;
+}
+
+.login-page {
+  display: grid;
+  place-items: center;
+}
+
+.login-card {
+  width: 100%;
+  padding: clamp(22px, 5vw, 34px);
+  border-radius: 32px;
+}
+
+.login-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.login-logo img {
+  width: min(320px, 82%);
+  height: auto;
+  object-fit: contain;
+}
+
+.login-title {
+  text-align: center;
+  margin-bottom: 22px;
+}
+
+.login-title h1 {
+  margin: 0;
+  color: var(--color-950);
+  font-size: clamp(30px, 7vw, 46px);
+  line-height: .95;
+  letter-spacing: -.06em;
+}
+
+.login-title p {
+  margin: 10px 0 0;
+  color: var(--color-600);
+  line-height: 1.5;
+}
+
+.login-form {
+  display: grid;
+  gap: 14px;
+}
+
+.login-error {
+  min-height: 20px;
+  margin: 0;
+  color: var(--danger);
+  font-weight: 800;
+  font-size: 14px;
+  text-align: center;
+}
+
+.login-note {
+  margin: 18px 0 0;
+  text-align: center;
+  color: var(--color-600);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.home-user-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: -4px;
+}
+
+.home-user-bar span {
+  color: var(--color-600);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.btn-logout {
+  position: relative;
+  z-index: 2;
+  margin-left: auto;
+  width: auto;
+  min-height: 38px;
+  padding: 8px 13px;
+  border-radius: 14px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.public-menu-shell {
+  width: min(980px, calc(100% - 18px));
+  padding-top: 18px;
+  padding-bottom: 40px;
+}
+
+.public-menu-shell .page-topbar,
+.public-menu-shell .topbar,
+.public-menu-shell .nav-actions,
+.public-menu-shell .btn-home,
+.public-menu-shell .btn-logout {
+  display: none !important;
+}
+
+@media (max-width: 640px) {
+  .login-shell {
+    width: min(100% - 12px, 520px);
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  .login-card {
+    border-radius: 28px;
+  }
+
+  .login-logo img {
+    width: min(280px, 86%);
+  }
+
+  .home-user-bar {
+    justify-content: space-between;
+  }
+
+  .btn-logout {
+    min-height: 36px;
+    padding: 7px 11px;
+    font-size: 13px;
+    border-radius: 12px;
+  }
+
+  .public-menu-shell {
+    width: min(100% - 12px, 980px);
+    padding-top: 12px;
+    padding-bottom: 28px;
+  }
+}
