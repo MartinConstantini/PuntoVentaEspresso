@@ -30,7 +30,7 @@ let unsubscribeActiveTickets = null;
 const SESSION_KEY = "esspreso_jwt";
 const USER_KEY = "esspreso_user";
 const PUBLIC_ROUTES = ["menu", "login"];
-const TOKEN_HOURS = 10;
+const TOKEN_HOURS = 4;
 const DEV_USERS = {
   andrea: "andreaSpre",
   ximena: "ximenaSpre"
@@ -709,24 +709,37 @@ function onlineMenuGroup(group) {
 function renderFinance() {
   baseLayout(`
     <section class="card panel" id="finance-panel">
-      <div class="toolbar">
-        <div class="toolbar-left">
-          <div>
-            <h2 style="margin:0; letter-spacing:-.04em;">Finanzas</h2>
-            <p style="margin:4px 0 0; color:var(--color-600);">Consulta ventas cerradas por fecha.</p>
-          </div>
+      <div class="finance-header-clean">
+        <div class="finance-title-clean">
+          <h2>Finanzas</h2>
+          <p>Contable</p>
         </div>
-        <div class="toolbar-right">
-          <input type="date" id="finance-date" value="${escapeHtml(currentFinanceDate)}" data-action="finance-date" style="max-width:180px;">
-          <button class="btn btn-outline" data-action="print-report">Imprimir</button>
-          <button class="btn btn-primary" data-action="pdf-report">Guardar PDF</button>
+
+        <div class="finance-actions-clean">
+          <input 
+            type="date" 
+            id="finance-date" 
+            value="${escapeHtml(currentFinanceDate)}" 
+            data-action="finance-date"
+            class="finance-date-input"
+          >
+
+          <button class="btn btn-outline finance-btn" data-action="print-report">
+            Imprimir reporte
+          </button>
+
+          <button class="btn btn-primary finance-btn" data-action="pdf-report">
+            Guardar PDF
+          </button>
         </div>
       </div>
+
       <div id="finance-content">
         <div class="empty-state">Cargando ventas del dia...</div>
       </div>
     </section>
   `);
+
   loadFinance(currentFinanceDate);
 }
 
@@ -748,40 +761,72 @@ async function loadFinance(dateKey) {
 function paintFinance(tickets) {
   const content = document.querySelector("#finance-content");
   if (!content) return;
-  const total = tickets.reduce((sum, ticket) => sum + Number(ticket.total || 0), 0);
-  const items = tickets.reduce((sum, ticket) => sum + (ticket.items || []).reduce((s, item) => s + Number(item.qty || 0), 0), 0);
-  const cash = sumByPayment(tickets, "efectivo");
-  const card = sumByPayment(tickets, "tarjeta");
-  const transfer = sumByPayment(tickets, "transferencia");
+
+  const summary = getFinanceSummary(tickets);
+  const productRows = getFinanceProductRows(tickets);
+  const ticketTypeRows = getFinanceTypeRows(tickets);
 
   content.innerHTML = `
-    <div class="metrics-grid">
-      ${metricCard("Ventas", formatMoney(total))}
-      ${metricCard("Tickets", tickets.length)}
-      ${metricCard("Productos", items)}
-      ${metricCard("Promedio", tickets.length ? formatMoney(total / tickets.length) : formatMoney(0))}
+    <div class="finance-summary-grid">
+      ${financeMetricCard("Venta total", formatMoney(summary.total), "Ingreso bruto del dia")}
+      ${financeMetricCard("Efectivo", formatMoney(summary.cash), "Caja recibida")}
+      ${financeMetricCard("Tarjeta", formatMoney(summary.card), "Cobros con terminal")}
+      ${financeMetricCard("Transferencia", formatMoney(summary.transfer), "Pagos bancarios")}
+      ${financeMetricCard("Tickets cerrados", summary.ticketCount, `${summary.mesaCount} mesas · ${summary.llevarCount} para llevar`)}
+      ${financeMetricCard("Ticket promedio", formatMoney(summary.averageTicket), "Venta promedio por orden")}
+      ${financeMetricCard("Productos vendidos", summary.items, `${summary.averageItems} productos por ticket`)}
+      ${financeMetricCard("Producto top", summary.topProductName, `${summary.topProductQty} vendido(s)`)}
     </div>
 
-    <div class="finance-layout">
+    <div class="finance-accounting-layout">
+      <section class="finance-accounting-card card">
+        <h3>Resumen de cobros</h3>
+        ${financeSimpleRow("Efectivo", formatMoney(summary.cash), percentage(summary.cash, summary.total))}
+        ${financeSimpleRow("Tarjeta", formatMoney(summary.card), percentage(summary.card, summary.total))}
+        ${financeSimpleRow("Transferencia", formatMoney(summary.transfer), percentage(summary.transfer, summary.total))}
+        <div class="finance-accounting-total">
+          <span>Total cobrado</span>
+          <strong>${formatMoney(summary.total)}</strong>
+        </div>
+      </section>
+
+      <section class="finance-accounting-card card">
+        <h3>Operacion del dia</h3>
+        ${financeSimpleRow("Mesas", `${summary.mesaCount} ticket(s)`, formatMoney(summary.mesaTotal))}
+        ${financeSimpleRow("Para llevar", `${summary.llevarCount} ticket(s)`, formatMoney(summary.llevarTotal))}
+        ${financeSimpleRow("Mayor venta", formatMoney(summary.highestTicketTotal), escapeHtml(summary.highestTicketName))}
+        ${financeSimpleRow("Lineas vendidas", summary.lines, `${summary.items} piezas`)}
+      </section>
+
+      <section class="finance-accounting-card card">
+        <h3>Productos mas vendidos</h3>
+        ${productRows.length
+          ? productRows.slice(0, 5).map((row) => financeSimpleRow(row.name, `${row.qty} pza(s)`, formatMoney(row.total))).join("")
+          : `<p class="finance-empty-small">Sin productos vendidos.</p>`
+        }
+      </section>
+    </div>
+
+    <div class="finance-layout finance-layout-compact">
       <section class="chart-card card">
         <h3>Ventas por metodo de pago</h3>
         <canvas id="payment-chart"></canvas>
       </section>
 
       <section class="chart-card card">
-        <h3>Resumen</h3>
+        <h3>Ventas por ticket</h3>
         <canvas id="finance-chart"></canvas>
       </section>
     </div>
 
-    <div class="section-title">
+    <div class="section-title finance-table-title">
       <div>
         <h2 style="font-size:28px;">Tickets finalizados</h2>
-        <p>${escapeHtml(currentFinanceDate)}</p>
+        <p>${escapeHtml(currentFinanceDate)} · ${tickets.length} ticket(s)</p>
       </div>
     </div>
 
-    <div class="table-wrap">
+    <div class="table-wrap finance-table-wrap">
       <table>
         <thead>
           <tr>
@@ -804,18 +849,118 @@ function paintFinance(tickets) {
     </div>
   `;
 
-  drawPaymentChart([cash, card, transfer]);
+  drawPaymentChart([summary.cash, summary.card, summary.transfer]);
   drawFinanceChart(tickets);
 }
 
+function financeMetricCard(label, value, detail = "") {
+  return `
+    <article class="metric-card finance-metric-card">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      ${detail ? `<small>${escapeHtml(detail)}</small>` : ""}
+    </article>
+  `;
+}
+
 function metricCard(label, value) {
-  return `<article class="metric-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></article>`;
+  return financeMetricCard(label, value);
+}
+
+function financeSimpleRow(label, value, detail = "") {
+  return `
+    <div class="finance-simple-row">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      ${detail ? `<small>${escapeHtml(detail)}</small>` : ""}
+    </div>
+  `;
 }
 
 function sumByPayment(tickets, method) {
   return tickets
     .filter((ticket) => ticket.paymentMethod === method)
     .reduce((sum, ticket) => sum + Number(ticket.total || 0), 0);
+}
+
+function percentage(value, total) {
+  const number = total ? Math.round((Number(value || 0) / Number(total || 0)) * 100) : 0;
+  return `${number}%`;
+}
+
+function getFinanceSummary(tickets) {
+  const total = tickets.reduce((sum, ticket) => sum + Number(ticket.total || 0), 0);
+  const cash = sumByPayment(tickets, "efectivo");
+  const card = sumByPayment(tickets, "tarjeta");
+  const transfer = sumByPayment(tickets, "transferencia");
+  const ticketCount = tickets.length;
+  const items = tickets.reduce((sum, ticket) => sum + (ticket.items || []).reduce((s, item) => s + Number(item.qty || 0), 0), 0);
+  const lines = tickets.reduce((sum, ticket) => sum + (ticket.items || []).length, 0);
+  const mesaTickets = tickets.filter((ticket) => (ticket.type || "mesa") === "mesa");
+  const llevarTickets = tickets.filter((ticket) => (ticket.type || "") === "llevar");
+  const mesaTotal = mesaTickets.reduce((sum, ticket) => sum + Number(ticket.total || 0), 0);
+  const llevarTotal = llevarTickets.reduce((sum, ticket) => sum + Number(ticket.total || 0), 0);
+  const productRows = getFinanceProductRows(tickets);
+  const topProduct = productRows[0];
+  const highestTicket = [...tickets].sort((a, b) => Number(b.total || 0) - Number(a.total || 0))[0];
+
+  return {
+    total,
+    cash,
+    card,
+    transfer,
+    ticketCount,
+    items,
+    lines,
+    mesaCount: mesaTickets.length,
+    llevarCount: llevarTickets.length,
+    mesaTotal,
+    llevarTotal,
+    averageTicket: ticketCount ? total / ticketCount : 0,
+    averageItems: ticketCount ? (items / ticketCount).toFixed(1) : "0",
+    topProductName: topProduct?.name || "Sin ventas",
+    topProductQty: topProduct?.qty || 0,
+    highestTicketName: highestTicket?.name || highestTicket?.alias || "Sin ventas",
+    highestTicketTotal: highestTicket?.total || 0
+  };
+}
+
+function getFinanceProductRows(tickets) {
+  const map = new Map();
+
+  tickets.forEach((ticket) => {
+    (ticket.items || []).forEach((item) => {
+      const key = `${item.name || "Producto"}|${item.category || "Sin categoria"}|${Number(item.price || 0)}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          name: item.name || "Producto",
+          category: item.category || "Sin categoria",
+          price: Number(item.price || 0),
+          qty: 0,
+          total: 0
+        });
+      }
+
+      const row = map.get(key);
+      row.qty += Number(item.qty || 0);
+      row.total += Number(item.subtotal || (Number(item.price || 0) * Number(item.qty || 0)));
+    });
+  });
+
+  return Array.from(map.values()).sort((a, b) => b.qty - a.qty || b.total - a.total);
+}
+
+function getFinanceTypeRows(tickets) {
+  const types = [
+    { key: "mesa", label: "Mesas" },
+    { key: "llevar", label: "Para llevar" }
+  ];
+
+  return types.map((type) => {
+    const list = tickets.filter((ticket) => (ticket.type || "mesa") === type.key);
+    const total = list.reduce((sum, ticket) => sum + Number(ticket.total || 0), 0);
+    return { ...type, count: list.length, total };
+  });
 }
 
 function ticketFinanceRow(ticket) {
@@ -1234,30 +1379,67 @@ function drawPaymentChart(values) {
     type: "doughnut",
     data: {
       labels: ["Efectivo", "Tarjeta", "Transferencia"],
-      datasets: [{ data: values, backgroundColor: ["#6C9373", "#3D5241", "#BCCDBF"], borderWidth: 0 }]
+      datasets: [{
+        data: values,
+        backgroundColor: ["#6C9373", "#3D5241", "#BCCDBF"],
+        borderWidth: 0
+      }]
     },
-    options: { responsive: true, plugins: { legend: { position: "bottom" } } }
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "62%",
+      plugins: {
+        legend: { position: "bottom" },
+        tooltip: {
+          callbacks: {
+            label: (context) => `${context.label}: ${formatMoney(context.raw)}`
+          }
+        }
+      }
+    }
   });
 }
 
 function drawFinanceChart(tickets) {
   const canvas = document.querySelector("#finance-chart");
   if (!canvas || !window.Chart) return;
-  const labels = tickets.map((ticket) => ticket.name || ticket.alias || "Ticket");
+  const labels = tickets.map((ticket) => shortTicketLabel(ticket.name || ticket.alias || "Ticket"));
   const data = tickets.map((ticket) => Number(ticket.total || 0));
   financeChart?.destroy();
   financeChart = new window.Chart(canvas, {
     type: "bar",
     data: {
       labels,
-      datasets: [{ label: "Total", data, backgroundColor: "#87A68D", borderRadius: 10 }]
+      datasets: [{
+        label: "Total",
+        data,
+        backgroundColor: "#87A68D",
+        borderRadius: 10
+      }]
     },
     options: {
       responsive: true,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true } }
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (context) => `Total: ${formatMoney(context.raw)}`
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 6 } },
+        y: { beginAtZero: true }
+      }
     }
   });
+}
+
+function shortTicketLabel(value) {
+  const text = String(value || "Ticket");
+  return text.length > 16 ? `${text.slice(0, 16)}...` : text;
 }
 
 function openNewTicketModal() {
@@ -1789,34 +1971,605 @@ function updateProductSelect() {
 }
 
 function printReport() {
-  window.print();
+  const printWindow = window.open("", "_blank", "width=920,height=720");
+
+  if (!printWindow) {
+    showToast("Permite ventanas emergentes para imprimir");
+    return;
+  }
+
+  printWindow.document.open();
+  printWindow.document.write(buildFinancePrintableReportHtml());
+  printWindow.document.close();
+  printWindow.focus();
 }
 
 function savePdfReport() {
   if (!window.jspdf) return showToast("No se pudo cargar jsPDF");
+
   const { jsPDF } = window.jspdf;
-  const docPdf = new jsPDF();
-  const total = currentFinanceTickets.reduce((sum, ticket) => sum + Number(ticket.total || 0), 0);
-  let y = 18;
+  const docPdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" });
+  const pageWidth = docPdf.internal.pageSize.getWidth();
+  const pageHeight = docPdf.internal.pageSize.getHeight();
+  const margin = 12;
+  const summary = getFinanceSummary(currentFinanceTickets);
+  const productRows = getFinanceProductRows(currentFinanceTickets);
+  const paymentImage = getCanvasImage("#payment-chart");
+  const ticketImage = getCanvasImage("#finance-chart");
+
+  let y = 12;
+
+  drawFinancePdfHeader(docPdf, pageWidth, margin, y);
+  y += 28;
+
+  docPdf.setTextColor(11, 15, 12);
+  docPdf.setFont("helvetica", "bold");
+  docPdf.setFontSize(12);
+  docPdf.text(`Fecha: ${currentFinanceDate}`, margin, y);
+  docPdf.text(`Generado: ${formatTicketDateTimeFromDate(new Date())}`, pageWidth - margin, y, { align: "right" });
+  y += 8;
+
+  y = drawFinancePdfMetrics(docPdf, summary, margin, y, pageWidth);
+  y += 6;
+
+  if (paymentImage || ticketImage) {
+    docPdf.setFont("helvetica", "bold");
+    docPdf.setFontSize(11);
+    docPdf.setTextColor(30, 41, 32);
+    docPdf.text("Graficas", margin, y);
+    y += 4;
+
+    const chartWidth = (pageWidth - margin * 2 - 6) / 2;
+    const chartHeight = 48;
+
+    if (paymentImage) {
+      docPdf.setDrawColor(214, 225, 216);
+      docPdf.roundedRect(margin, y, chartWidth, chartHeight + 8, 3, 3);
+      docPdf.addImage(paymentImage, "PNG", margin + 3, y + 5, chartWidth - 6, chartHeight);
+    }
+
+    if (ticketImage) {
+      docPdf.setDrawColor(214, 225, 216);
+      docPdf.roundedRect(margin + chartWidth + 6, y, chartWidth, chartHeight + 8, 3, 3);
+      docPdf.addImage(ticketImage, "PNG", margin + chartWidth + 9, y + 5, chartWidth - 6, chartHeight);
+    }
+
+    y += chartHeight + 16;
+  }
+
+  y = drawFinancePdfTicketTable(docPdf, currentFinanceTickets, margin, y, pageWidth, pageHeight);
+
+  if (productRows.length) {
+    if (y > pageHeight - 58) {
+      docPdf.addPage();
+      y = 16;
+    }
+
+    y += 6;
+    docPdf.setFont("helvetica", "bold");
+    docPdf.setFontSize(12);
+    docPdf.setTextColor(30, 41, 32);
+    docPdf.text("Productos mas vendidos", margin, y);
+    y += 7;
+    y = drawFinancePdfProductTable(docPdf, productRows.slice(0, 10), margin, y, pageWidth, pageHeight);
+  }
+
+  addFinancePdfFooters(docPdf, pageWidth, pageHeight, margin);
+  docPdf.save(`reporte_esspreso_${currentFinanceDate}.pdf`);
+}
+
+function buildFinancePrintableReportHtml() {
+  const summary = getFinanceSummary(currentFinanceTickets);
+  const productRows = getFinanceProductRows(currentFinanceTickets);
+  const paymentImage = getCanvasImage("#payment-chart");
+  const ticketImage = getCanvasImage("#finance-chart");
+
+  return `
+    <!doctype html>
+    <html lang="es">
+      <head>
+        <meta charset="UTF-8">
+        <title>Reporte finanzas esspreso ${escapeHtml(currentFinanceDate)}</title>
+        <style>
+          @page {
+            size: letter;
+            margin: 12mm;
+          }
+
+          * { box-sizing: border-box; }
+
+          body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            color: #0B0F0C;
+            background: #ffffff;
+          }
+
+          .report-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: #1E2920;
+            color: #F0F4F1;
+          }
+
+          .report-header h1 {
+            margin: 0;
+            font-size: 22px;
+          }
+
+          .report-header p {
+            margin: 4px 0 0;
+            font-size: 12px;
+            color: #D6E1D8;
+          }
+
+          .logo {
+            width: 112px;
+            height: auto;
+            object-fit: contain;
+            background: #ffffff;
+            border-radius: 10px;
+            padding: 4px;
+          }
+
+          .meta {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin: 12px 0;
+            font-size: 12px;
+            color: #3D5241;
+            font-weight: 700;
+          }
+
+          .metrics {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin: 10px 0 12px;
+          }
+
+          .metric {
+            min-height: 58px;
+            padding: 8px;
+            border: 1px solid #D6E1D8;
+            border-radius: 10px;
+            background: #F0F4F1;
+          }
+
+          .metric span {
+            display: block;
+            font-size: 10px;
+            color: #59785F;
+            font-weight: 700;
+          }
+
+          .metric strong {
+            display: block;
+            margin-top: 4px;
+            font-size: 16px;
+          }
+
+          .metric small {
+            display: block;
+            margin-top: 3px;
+            font-size: 9px;
+            color: #59785F;
+          }
+
+          .charts {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin: 8px 0 12px;
+          }
+
+          .chart-box {
+            height: 145px;
+            border: 1px solid #D6E1D8;
+            border-radius: 10px;
+            padding: 6px;
+            text-align: center;
+          }
+
+          .chart-box h2 {
+            margin: 0 0 4px;
+            font-size: 11px;
+            color: #324335;
+          }
+
+          .chart-box img {
+            max-width: 100%;
+            max-height: 118px;
+            object-fit: contain;
+          }
+
+          h2 {
+            margin: 12px 0 6px;
+            font-size: 14px;
+            color: #1E2920;
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10px;
+            page-break-inside: auto;
+          }
+
+          thead { display: table-header-group; }
+          tr { page-break-inside: avoid; }
+
+          th {
+            padding: 6px;
+            background: #D6E1D8;
+            color: #1E2920;
+            text-align: left;
+            border: 1px solid #BCCDBF;
+          }
+
+          td {
+            padding: 6px;
+            border: 1px solid #D6E1D8;
+            vertical-align: top;
+          }
+
+          td.money,
+          th.money {
+            text-align: right;
+          }
+
+          .summary-table {
+            margin-top: 6px;
+          }
+
+          .print-note {
+            margin-top: 10px;
+            font-size: 10px;
+            color: #59785F;
+            text-align: center;
+          }
+        </style>
+      </head>
+      <body>
+        <header class="report-header">
+          <div>
+            <h1>Reporte de ventas</h1>
+            <p>esspreso cafe y sabor · hoja tamano carta</p>
+          </div>
+          <img src="/assets/logo-esspreso.png" class="logo" alt="esspreso">
+        </header>
+
+        <div class="meta">
+          <span>Fecha consultada: ${escapeHtml(currentFinanceDate)}</span>
+          <span>Generado: ${escapeHtml(formatTicketDateTimeFromDate(new Date()))}</span>
+        </div>
+
+        <section class="metrics">
+          ${printMetric("Venta total", formatMoney(summary.total), "Ingreso bruto")}
+          ${printMetric("Efectivo", formatMoney(summary.cash), "Caja")}
+          ${printMetric("Tarjeta", formatMoney(summary.card), "Terminal")}
+          ${printMetric("Transferencia", formatMoney(summary.transfer), "Banco")}
+          ${printMetric("Tickets", summary.ticketCount, `${summary.mesaCount} mesas · ${summary.llevarCount} llevar`)}
+          ${printMetric("Promedio", formatMoney(summary.averageTicket), "Ticket promedio")}
+          ${printMetric("Productos", summary.items, `${summary.averageItems} por ticket`)}
+          ${printMetric("Top", summary.topProductName, `${summary.topProductQty} vendido(s)`)}
+        </section>
+
+        <section class="charts">
+          <div class="chart-box">
+            <h2>Metodo de pago</h2>
+            ${paymentImage ? `<img src="${paymentImage}" alt="Grafica metodo de pago">` : `<p>Sin grafica</p>`}
+          </div>
+          <div class="chart-box">
+            <h2>Ventas por ticket</h2>
+            ${ticketImage ? `<img src="${ticketImage}" alt="Grafica tickets">` : `<p>Sin grafica</p>`}
+          </div>
+        </section>
+
+        <h2>Detalle de tickets</h2>
+        ${financePrintableTicketTable(currentFinanceTickets)}
+
+        <h2>Productos mas vendidos</h2>
+        ${financePrintableProductTable(productRows.slice(0, 12))}
+
+        <p class="print-note">Reporte generado desde el punto de venta esspreso.</p>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 500);
+          };
+        </script>
+      </body>
+    </html>
+  `;
+}
+
+function printMetric(label, value, detail = "") {
+  return `
+    <article class="metric">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      ${detail ? `<small>${escapeHtml(detail)}</small>` : ""}
+    </article>
+  `;
+}
+
+function financePrintableTicketTable(tickets) {
+  if (!tickets.length) {
+    return `<p>No hay ventas finalizadas para esta fecha.</p>`;
+  }
+
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>Ticket</th>
+          <th>Hora</th>
+          <th>Tipo</th>
+          <th>Pago</th>
+          <th>Productos</th>
+          <th class="money">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tickets.map((ticket) => {
+          const productsCount = (ticket.items || []).reduce((sum, item) => sum + Number(item.qty || 0), 0);
+          return `
+            <tr>
+              <td>${escapeHtml(ticket.name || ticket.alias || "Ticket")}</td>
+              <td>${escapeHtml(formatTicketTime(ticket.closedAt || ticket.createdAt))}</td>
+              <td>${escapeHtml(ticket.type || "mesa")}</td>
+              <td>${escapeHtml(paymentLabel(ticket.paymentMethod || ""))}</td>
+              <td>${productsCount}</td>
+              <td class="money">${formatMoney(ticket.total)}</td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function financePrintableProductTable(rows) {
+  if (!rows.length) {
+    return `<p>No hay productos vendidos.</p>`;
+  }
+
+  return `
+    <table class="summary-table">
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Categoria</th>
+          <th>Cantidad</th>
+          <th class="money">Importe</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((row) => `
+          <tr>
+            <td>${escapeHtml(row.name)}</td>
+            <td>${escapeHtml(row.category)}</td>
+            <td>${row.qty}</td>
+            <td class="money">${formatMoney(row.total)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function getCanvasImage(selector) {
+  const canvas = document.querySelector(selector);
+  if (!canvas) return "";
+
+  try {
+    return canvas.toDataURL("image/png", 1);
+  } catch (error) {
+    return "";
+  }
+}
+
+function formatTicketTime(timestamp) {
+  if (!timestamp?.seconds) return "Sin dato";
+
+  return new Intl.DateTimeFormat("es-MX", {
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(timestamp.seconds * 1000));
+}
+
+function formatTicketDateTimeFromDate(date) {
+  return new Intl.DateTimeFormat("es-MX", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function drawFinancePdfHeader(docPdf, pageWidth, margin, y) {
+  docPdf.setFillColor(30, 41, 32);
+  docPdf.roundedRect(margin, y, pageWidth - margin * 2, 22, 4, 4, "F");
+  docPdf.setTextColor(240, 244, 241);
   docPdf.setFont("helvetica", "bold");
   docPdf.setFontSize(18);
-  docPdf.text("Reporte de ventas - esspreso", 14, y);
-  y += 10;
+  docPdf.text("Reporte de ventas", margin + 8, y + 9);
   docPdf.setFont("helvetica", "normal");
-  docPdf.setFontSize(11);
-  docPdf.text(`Fecha: ${currentFinanceDate}`, 14, y); y += 7;
-  docPdf.text(`Tickets finalizados: ${currentFinanceTickets.length}`, 14, y); y += 7;
-  docPdf.text(`Total vendido: ${formatMoney(total)}`, 14, y); y += 10;
+  docPdf.setFontSize(9);
+  docPdf.text("esspreso cafe y sabor · hoja tamano carta", margin + 8, y + 16);
   docPdf.setFont("helvetica", "bold");
-  docPdf.text("Detalle", 14, y); y += 8;
-  docPdf.setFont("helvetica", "normal");
-  currentFinanceTickets.forEach((ticket, index) => {
-    if (y > 270) { docPdf.addPage(); y = 18; }
-    const productsCount = (ticket.items || []).reduce((sum, item) => sum + Number(item.qty || 0), 0);
-    docPdf.text(`${index + 1}. ${ticket.name || ticket.alias || "Ticket"}`, 14, y); y += 6;
-    docPdf.text(`Tipo: ${ticket.type || "mesa"} | Pago: ${ticket.paymentMethod || ""} | Productos: ${productsCount} | Total: ${formatMoney(ticket.total)}`, 18, y); y += 8;
+  docPdf.setFontSize(12);
+  docPdf.text("esspreso", pageWidth - margin - 8, y + 13, { align: "right" });
+}
+
+function drawFinancePdfMetrics(docPdf, summary, margin, y, pageWidth) {
+  const metrics = [
+    ["Venta total", formatMoney(summary.total), "Ingreso bruto"],
+    ["Efectivo", formatMoney(summary.cash), "Caja"],
+    ["Tarjeta", formatMoney(summary.card), "Terminal"],
+    ["Transferencia", formatMoney(summary.transfer), "Banco"],
+    ["Tickets", String(summary.ticketCount), `${summary.mesaCount} mesas / ${summary.llevarCount} llevar`],
+    ["Promedio", formatMoney(summary.averageTicket), "Por ticket"],
+    ["Productos", String(summary.items), `${summary.averageItems} por ticket`],
+    ["Top", summary.topProductName, `${summary.topProductQty} vendido(s)`]
+  ];
+
+  const boxGap = 4;
+  const boxWidth = (pageWidth - margin * 2 - boxGap * 3) / 4;
+  const boxHeight = 18;
+
+  metrics.forEach((metric, index) => {
+    const col = index % 4;
+    const row = Math.floor(index / 4);
+    const x = margin + col * (boxWidth + boxGap);
+    const yy = y + row * (boxHeight + boxGap);
+
+    docPdf.setFillColor(240, 244, 241);
+    docPdf.setDrawColor(214, 225, 216);
+    docPdf.roundedRect(x, yy, boxWidth, boxHeight, 3, 3, "FD");
+    docPdf.setTextColor(89, 120, 95);
+    docPdf.setFont("helvetica", "bold");
+    docPdf.setFontSize(7);
+    docPdf.text(metric[0], x + 3, yy + 5);
+    docPdf.setTextColor(11, 15, 12);
+    docPdf.setFontSize(metric[1].length > 14 ? 8 : 10);
+    docPdf.text(docPdf.splitTextToSize(metric[1], boxWidth - 6), x + 3, yy + 10);
+    docPdf.setTextColor(89, 120, 95);
+    docPdf.setFont("helvetica", "normal");
+    docPdf.setFontSize(6.5);
+    docPdf.text(docPdf.splitTextToSize(metric[2], boxWidth - 6), x + 3, yy + 15);
   });
-  docPdf.save(`reporte_esspreso_${currentFinanceDate}.pdf`);
+
+  return y + boxHeight * 2 + boxGap + 2;
+}
+
+function drawFinancePdfTicketTable(docPdf, tickets, margin, y, pageWidth, pageHeight) {
+  docPdf.setFont("helvetica", "bold");
+  docPdf.setFontSize(12);
+  docPdf.setTextColor(30, 41, 32);
+  docPdf.text("Detalle de tickets", margin, y);
+  y += 7;
+
+  const columns = [
+    { label: "Ticket", x: margin, width: 64 },
+    { label: "Hora", x: margin + 66, width: 22 },
+    { label: "Tipo", x: margin + 90, width: 25 },
+    { label: "Pago", x: margin + 117, width: 32 },
+    { label: "Prod.", x: margin + 151, width: 16 },
+    { label: "Total", x: pageWidth - margin - 28, width: 28, align: "right" }
+  ];
+
+  y = drawFinancePdfTableHeader(docPdf, columns, y, pageWidth, margin);
+
+  if (!tickets.length) {
+    docPdf.setFont("helvetica", "normal");
+    docPdf.setFontSize(9);
+    docPdf.text("No hay ventas finalizadas para esta fecha.", margin, y + 5);
+    return y + 12;
+  }
+
+  tickets.forEach((ticket) => {
+    if (y > pageHeight - 20) {
+      docPdf.addPage();
+      y = 16;
+      y = drawFinancePdfTableHeader(docPdf, columns, y, pageWidth, margin);
+    }
+
+    const productsCount = (ticket.items || []).reduce((sum, item) => sum + Number(item.qty || 0), 0);
+    const row = [
+      String(ticket.name || ticket.alias || "Ticket"),
+      formatTicketTime(ticket.closedAt || ticket.createdAt),
+      String(ticket.type || "mesa"),
+      paymentLabel(ticket.paymentMethod || ""),
+      String(productsCount),
+      formatMoney(ticket.total)
+    ];
+
+    docPdf.setFont("helvetica", "normal");
+    docPdf.setFontSize(8);
+    docPdf.setTextColor(11, 15, 12);
+    docPdf.text(docPdf.splitTextToSize(row[0], columns[0].width), columns[0].x + 1, y + 5);
+    docPdf.text(row[1], columns[1].x + 1, y + 5);
+    docPdf.text(row[2], columns[2].x + 1, y + 5);
+    docPdf.text(row[3], columns[3].x + 1, y + 5);
+    docPdf.text(row[4], columns[4].x + 1, y + 5);
+    docPdf.text(row[5], columns[5].x + columns[5].width, y + 5, { align: "right" });
+    docPdf.setDrawColor(214, 225, 216);
+    docPdf.line(margin, y + 8, pageWidth - margin, y + 8);
+    y += 9;
+  });
+
+  return y;
+}
+
+function drawFinancePdfProductTable(docPdf, rows, margin, y, pageWidth, pageHeight) {
+  const columns = [
+    { label: "Producto", x: margin, width: 76 },
+    { label: "Categoria", x: margin + 78, width: 50 },
+    { label: "Cant.", x: margin + 130, width: 18 },
+    { label: "Importe", x: pageWidth - margin - 32, width: 32, align: "right" }
+  ];
+
+  y = drawFinancePdfTableHeader(docPdf, columns, y, pageWidth, margin);
+
+  rows.forEach((row) => {
+    if (y > pageHeight - 20) {
+      docPdf.addPage();
+      y = 16;
+      y = drawFinancePdfTableHeader(docPdf, columns, y, pageWidth, margin);
+    }
+
+    docPdf.setFont("helvetica", "normal");
+    docPdf.setFontSize(8);
+    docPdf.setTextColor(11, 15, 12);
+    docPdf.text(docPdf.splitTextToSize(String(row.name), columns[0].width), columns[0].x + 1, y + 5);
+    docPdf.text(docPdf.splitTextToSize(String(row.category), columns[1].width), columns[1].x + 1, y + 5);
+    docPdf.text(String(row.qty), columns[2].x + 1, y + 5);
+    docPdf.text(formatMoney(row.total), columns[3].x + columns[3].width, y + 5, { align: "right" });
+    docPdf.setDrawColor(214, 225, 216);
+    docPdf.line(margin, y + 8, pageWidth - margin, y + 8);
+    y += 9;
+  });
+
+  return y;
+}
+
+function drawFinancePdfTableHeader(docPdf, columns, y, pageWidth, margin) {
+  docPdf.setFillColor(214, 225, 216);
+  docPdf.rect(margin, y, pageWidth - margin * 2, 7, "F");
+  docPdf.setTextColor(30, 41, 32);
+  docPdf.setFont("helvetica", "bold");
+  docPdf.setFontSize(7.5);
+
+  columns.forEach((column) => {
+    docPdf.text(column.label, column.align === "right" ? column.x + column.width : column.x + 1, y + 4.7, {
+      align: column.align || "left"
+    });
+  });
+
+  return y + 8;
+}
+
+function addFinancePdfFooters(docPdf, pageWidth, pageHeight, margin) {
+  const pages = docPdf.internal.getNumberOfPages();
+
+  for (let page = 1; page <= pages; page += 1) {
+    docPdf.setPage(page);
+    docPdf.setFont("helvetica", "normal");
+    docPdf.setFontSize(8);
+    docPdf.setTextColor(89, 120, 95);
+    docPdf.text(`esspreso · ${currentFinanceDate}`, margin, pageHeight - 7);
+    docPdf.text(`Pagina ${page} de ${pages}`, pageWidth - margin, pageHeight - 7, { align: "right" });
+  }
 }
 
 function handleClick(event) {
