@@ -143,3 +143,27 @@ El archivo `netlify.toml` ya trae esta configuracion.
 4. En Cocina marca productos como preparados.
 5. En Finanzas revisa ventas y reimprime tickets.
 6. Usa `#menu` o el QR para clientes.
+
+## Actualizacion de finanzas: reportes por periodo
+
+En la seccion Finanzas se agrego el apartado Reportes generales. Permite consultar e imprimir reportes:
+
+- Semanales
+- Mensuales
+- Anuales
+
+Los reportes incluyen metricas contables basicas:
+
+- Ingreso total
+- Efectivo en caja
+- Cobros digitales: tarjeta + transferencia
+- Tickets cerrados
+- Ticket promedio
+- Productos vendidos
+- Dia con mas venta
+- Producto mas vendido
+- Ventas por dia
+- Detalle de tickets
+- Productos mas vendidos
+
+El reporte se puede imprimir en hoja tamano carta o guardar como PDF.
