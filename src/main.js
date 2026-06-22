@@ -22,10 +22,6 @@ let products = [];
 let activeTickets = [];
 let currentFinanceTickets = [];
 let currentFinanceDate = getDateKey(new Date());
-let currentPeriodType = "semana";
-let currentPeriodDate = getDateKey(new Date());
-let currentPeriodTickets = [];
-let currentPeriodRange = getPeriodRange(currentPeriodType, currentPeriodDate);
 let financeChart = null;
 let paymentChart = null;
 let unsubscribeProducts = null;
@@ -73,6 +69,17 @@ function escapeHtml(value = "") {
 function formatMoney(value) {
   return money.format(Number(value || 0));
 }
+function normalizeOptions(value = "") {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function renderItemOptions(item, className = "item-options") {
+  const options = normalizeOptions(item?.options || item?.notes || item?.kitchenNotes || "");
+  if (!options) return "";
+
+  return `<span class="${className}">Indicaciones: ${escapeHtml(options)}</span>`;
+}
+
 
 function getDateKey(date) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -195,6 +202,7 @@ function redirectToLogin() {
 
 function logout() {
   clearSession();
+  stopFirestoreListeners();
   closeModal();
   showToast("Sesion cerrada");
   location.hash = "login";
@@ -649,6 +657,7 @@ function kitchenItemRow(ticket, item, index) {
       <div class="kitchen-item-main">
         <strong>${Number(item.qty || 0)} x ${escapeHtml(item.name || "Producto")}</strong>
         <span>${escapeHtml(item.category || "Sin categoria")}</span>
+        ${renderItemOptions(item, "kitchen-item-options")}
       </div>
       <div class="kitchen-item-actions">
         <span class="kitchen-status-pill ${kitchenStatusClass(status)}">${kitchenStatusLabel(status)}</span>
@@ -661,10 +670,56 @@ function kitchenItemRow(ticket, item, index) {
   `;
 }
 
+function renderOnlineMenu() {
+  const activeProducts = products.filter((product) => product.active !== false);
+  const grouped = groupProducts(activeProducts);
+
+  baseLayout(`
+    <section class="card panel online-menu-panel">
+      <div class="online-menu-logo">
+        <img src="/assets/logo-esspreso.png" alt="Logo esspreso cafe y sabor">
+      </div>
+
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div>
+            <h2 style="margin:0; letter-spacing:-.04em;">Menu en linea</h2>
+            <p style="margin:4px 0 0; color:var(--color-600);">Productos actualizados desde Firebase.</p>
+          </div>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn btn-soft" data-action="show-menu-qr">Codigo QR</button>
+          <button class="btn btn-primary" data-action="export-products-pdf">Guardar PDF</button>
+        </div>
+      </div>
+
+      <div class="online-menu-grid">
+        ${grouped.length ? grouped.map(onlineMenuGroup).join("") : `<div class="empty-state">No hay productos activos para mostrar.</div>`}
+      </div>
+    </section>
+  `);
+}
+
+function onlineMenuGroup(group) {
+  return `
+    <section class="online-menu-group">
+      <h3>${escapeHtml(group.category)}</h3>
+      <div class="online-menu-items">
+        ${group.items.map((product) => `
+          <article class="online-menu-item">
+            <div>
+              <strong>${escapeHtml(product.name || "Producto")}</strong>
+              ${product.description ? `<p>${escapeHtml(product.description)}</p>` : ""}
+            </div>
+            <span>${formatMoney(product.price)}</span>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
 
 function renderFinance() {
-  currentPeriodRange = getPeriodRange(currentPeriodType, currentPeriodDate);
-
   baseLayout(`
     <section class="card panel" id="finance-panel">
       <div class="finance-header-clean">
@@ -683,11 +738,11 @@ function renderFinance() {
           >
 
           <button class="btn btn-outline finance-btn" data-action="print-report">
-            Imprimir dia
+            Imprimir reporte
           </button>
 
           <button class="btn btn-primary finance-btn" data-action="pdf-report">
-            PDF dia
+            Guardar PDF
           </button>
         </div>
       </div>
@@ -696,45 +751,9 @@ function renderFinance() {
         <div class="empty-state">Cargando ventas del dia...</div>
       </div>
     </section>
-
-    <section class="card panel period-report-panel" id="period-report-panel">
-      <div class="period-report-header">
-        <div>
-          <h2>Reportes generales</h2>
-          <p>Consulta e imprime reportes semanales, mensuales o anuales con metricas contables.</p>
-        </div>
-      </div>
-
-      <div class="period-report-controls">
-        <div class="form-group">
-          <label for="period-type">Tipo de reporte</label>
-          <select id="period-type" data-action="period-type-change">
-            <option value="semana" ${currentPeriodType === "semana" ? "selected" : ""}>Semanal</option>
-            <option value="mes" ${currentPeriodType === "mes" ? "selected" : ""}>Mensual</option>
-            <option value="anio" ${currentPeriodType === "anio" ? "selected" : ""}>Anual</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label for="period-date">Fecha de referencia</label>
-          <input type="date" id="period-date" value="${escapeHtml(currentPeriodDate)}" data-action="period-date-change">
-        </div>
-
-        <div class="period-actions">
-          <button class="btn btn-primary" data-action="load-period-report">Consultar</button>
-          <button class="btn btn-outline" data-action="print-period-report">Imprimir reporte</button>
-          <button class="btn btn-soft" data-action="pdf-period-report">Guardar PDF</button>
-        </div>
-      </div>
-
-      <div id="period-report-content">
-        <div class="empty-state">Cargando reporte...</div>
-      </div>
-    </section>
   `);
 
   loadFinance(currentFinanceDate);
-  loadPeriodReport();
 }
 
 async function renderMenu() {
@@ -845,258 +864,6 @@ function formatPublicMenuDate(value) {
     hour: "2-digit",
     minute: "2-digit"
   }).format(date);
-}
-
-function parseLocalDate(dateKey) {
-  const [year, month, day] = String(dateKey || getDateKey(new Date())).split("-").map(Number);
-  return new Date(year || new Date().getFullYear(), (month || 1) - 1, day || 1);
-}
-
-function getPeriodRange(type = "semana", dateKey = getDateKey(new Date())) {
-  const ref = parseLocalDate(dateKey);
-  let start;
-  let end;
-
-  if (type === "mes") {
-    start = new Date(ref.getFullYear(), ref.getMonth(), 1);
-    end = new Date(ref.getFullYear(), ref.getMonth() + 1, 0);
-  } else if (type === "anio") {
-    start = new Date(ref.getFullYear(), 0, 1);
-    end = new Date(ref.getFullYear(), 11, 31);
-  } else {
-    const day = ref.getDay();
-    const mondayOffset = day === 0 ? -6 : 1 - day;
-    start = new Date(ref);
-    start.setDate(ref.getDate() + mondayOffset);
-    end = new Date(start);
-    end.setDate(start.getDate() + 6);
-  }
-
-  return {
-    type,
-    start,
-    end,
-    startKey: getDateKey(start),
-    endKey: getDateKey(end),
-    label: periodLabel(type, start, end)
-  };
-}
-
-function periodLabel(type, start, end) {
-  if (type === "mes") {
-    return new Intl.DateTimeFormat("es-MX", { month: "long", year: "numeric" }).format(start);
-  }
-
-  if (type === "anio") {
-    return String(start.getFullYear());
-  }
-
-  return `${displayDate(start)} al ${displayDate(end)}`;
-}
-
-function periodTitle(type) {
-  const labels = {
-    semana: "Reporte semanal",
-    mes: "Reporte mensual",
-    anio: "Reporte anual"
-  };
-
-  return labels[type] || "Reporte general";
-}
-
-async function loadPeriodReport() {
-  const content = document.querySelector("#period-report-content");
-  if (!content) return;
-
-  currentPeriodRange = getPeriodRange(currentPeriodType, currentPeriodDate);
-  content.innerHTML = `<div class="empty-state">Cargando ${escapeHtml(periodTitle(currentPeriodType).toLowerCase())}...</div>`;
-
-  if (!firebaseReady || !db) {
-    content.innerHTML = `<div class="alert">Configura Firebase para consultar reportes.</div>`;
-    return;
-  }
-
-  try {
-    const snapshot = await getDocs(query(
-      collection(db, "tickets"),
-      where("dateKey", ">=", currentPeriodRange.startKey),
-      where("dateKey", "<=", currentPeriodRange.endKey)
-    ));
-
-    currentPeriodTickets = snapshot.docs
-      .map((item) => ({ id: item.id, ...item.data() }))
-      .filter((ticket) => ticket.status === "finalizado")
-      .sort((a, b) => String(a.dateKey || "").localeCompare(String(b.dateKey || "")) || Number(a.closedAt?.seconds || 0) - Number(b.closedAt?.seconds || 0));
-
-    paintPeriodReport(currentPeriodTickets, currentPeriodRange);
-  } catch (error) {
-    content.innerHTML = `<div class="alert">Error al leer reporte: ${escapeHtml(error.message)}</div>`;
-  }
-}
-
-function paintPeriodReport(tickets, range) {
-  const content = document.querySelector("#period-report-content");
-  if (!content) return;
-
-  const summary = getFinanceSummary(tickets);
-  const dailyRows = getPeriodDailyRows(tickets);
-  const productRows = getFinanceProductRows(tickets);
-
-  content.innerHTML = `
-    <div class="period-report-banner">
-      <div>
-        <span>${escapeHtml(periodTitle(range.type))}</span>
-        <strong>${escapeHtml(range.label)}</strong>
-      </div>
-      <small>${escapeHtml(range.startKey)} / ${escapeHtml(range.endKey)}</small>
-    </div>
-
-    <div class="finance-summary-grid period-summary-grid">
-      ${financeMetricCard("Ingreso total", formatMoney(summary.total), "Ventas finalizadas del periodo")}
-      ${financeMetricCard("Caja efectivo", formatMoney(summary.cash), `${percentage(summary.cash, summary.total)} del total`)}
-      ${financeMetricCard("Tarjeta", formatMoney(summary.card), `${percentage(summary.card, summary.total)} del total`)}
-      ${financeMetricCard("Transferencia", formatMoney(summary.transfer), `${percentage(summary.transfer, summary.total)} del total`)}
-      ${financeMetricCard("Tickets", summary.ticketCount, `${summary.mesaCount} mesas · ${summary.llevarCount} para llevar`)}
-      ${financeMetricCard("Ticket promedio", formatMoney(summary.averageTicket), "Promedio de venta")}
-      ${financeMetricCard("Productos", summary.items, `${summary.averageItems} por ticket`)}
-      ${financeMetricCard("Dia con mas venta", summary.bestDayLabel, formatMoney(summary.bestDayTotal))}
-    </div>
-
-    <div class="finance-accounting-layout period-accounting-layout">
-      <section class="finance-accounting-card card">
-        <h3>Resumen contable</h3>
-        ${financeSimpleRow("Ingreso bruto", formatMoney(summary.total), "Total vendido")}
-        ${financeSimpleRow("Cobrado en efectivo", formatMoney(summary.cash), "Caja")}
-        ${financeSimpleRow("Cobrado digital", formatMoney(summary.card + summary.transfer), "Tarjeta + transferencia")}
-        ${financeSimpleRow("Mayor ticket", formatMoney(summary.highestTicketTotal), summary.highestTicketName)}
-      </section>
-
-      <section class="finance-accounting-card card">
-        <h3>Operacion</h3>
-        ${financeSimpleRow("Mesas", `${summary.mesaCount} ticket(s)`, formatMoney(summary.mesaTotal))}
-        ${financeSimpleRow("Para llevar", `${summary.llevarCount} ticket(s)`, formatMoney(summary.llevarTotal))}
-        ${financeSimpleRow("Lineas vendidas", summary.lines, `${summary.items} piezas`)}
-        ${financeSimpleRow("Producto top", summary.topProductName, `${summary.topProductQty} vendido(s)`)}
-      </section>
-
-      <section class="finance-accounting-card card">
-        <h3>Productos top</h3>
-        ${productRows.length
-          ? productRows.slice(0, 5).map((row) => financeSimpleRow(row.name, `${row.qty} pza(s)`, formatMoney(row.total))).join("")
-          : `<p class="finance-empty-small">Sin productos vendidos.</p>`
-        }
-      </section>
-    </div>
-
-    <div class="period-tables-grid">
-      <section class="card period-table-card">
-        <h3>Ventas por dia</h3>
-        ${periodDailyTable(dailyRows)}
-      </section>
-
-      <section class="card period-table-card">
-        <h3>Detalle de tickets</h3>
-        ${periodTicketTable(tickets)}
-      </section>
-    </div>
-  `;
-}
-
-function getPeriodDailyRows(tickets) {
-  const map = new Map();
-
-  tickets.forEach((ticket) => {
-    const key = ticket.dateKey || getDateKey(new Date());
-    if (!map.has(key)) {
-      map.set(key, {
-        dateKey: key,
-        tickets: 0,
-        total: 0,
-        cash: 0,
-        card: 0,
-        transfer: 0,
-        items: 0
-      });
-    }
-
-    const row = map.get(key);
-    row.tickets += 1;
-    row.total += Number(ticket.total || 0);
-    row.items += (ticket.items || []).reduce((sum, item) => sum + Number(item.qty || 0), 0);
-
-    if (ticket.paymentMethod === "efectivo") row.cash += Number(ticket.total || 0);
-    if (ticket.paymentMethod === "tarjeta") row.card += Number(ticket.total || 0);
-    if (ticket.paymentMethod === "transferencia") row.transfer += Number(ticket.total || 0);
-  });
-
-  return Array.from(map.values()).sort((a, b) => String(a.dateKey).localeCompare(String(b.dateKey)));
-}
-
-function periodDailyTable(rows) {
-  if (!rows.length) return `<div class="empty-state">No hay ventas en este periodo.</div>`;
-
-  return `
-    <div class="table-wrap period-table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Fecha</th>
-            <th>Tickets</th>
-            <th>Productos</th>
-            <th>Efectivo</th>
-            <th>Digital</th>
-            <th>Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.map((row) => `
-            <tr>
-              <td><strong>${escapeHtml(row.dateKey)}</strong></td>
-              <td>${row.tickets}</td>
-              <td>${row.items}</td>
-              <td>${formatMoney(row.cash)}</td>
-              <td>${formatMoney(row.card + row.transfer)}</td>
-              <td><strong>${formatMoney(row.total)}</strong></td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function periodTicketTable(tickets) {
-  if (!tickets.length) return `<div class="empty-state">No hay tickets finalizados.</div>`;
-
-  return `
-    <div class="table-wrap period-table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Fecha</th>
-            <th>Ticket</th>
-            <th>Pago</th>
-            <th>Productos</th>
-            <th>Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${tickets.map((ticket) => {
-            const productsCount = (ticket.items || []).reduce((sum, item) => sum + Number(item.qty || 0), 0);
-            return `
-              <tr>
-                <td>${escapeHtml(ticket.dateKey || "")}</td>
-                <td><strong>${escapeHtml(ticket.name || ticket.alias || "Ticket")}</strong></td>
-                <td>${escapeHtml(paymentLabel(ticket.paymentMethod || ""))}</td>
-                <td>${productsCount}</td>
-                <td><strong>${formatMoney(ticket.total)}</strong></td>
-              </tr>
-            `;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
 }
 
 async function loadFinance(dateKey) {
@@ -1259,7 +1026,6 @@ function getFinanceSummary(tickets) {
   const productRows = getFinanceProductRows(tickets);
   const topProduct = productRows[0];
   const highestTicket = [...tickets].sort((a, b) => Number(b.total || 0) - Number(a.total || 0))[0];
-  const bestDay = getPeriodDailyRows(tickets).sort((a, b) => Number(b.total || 0) - Number(a.total || 0))[0];
 
   return {
     total,
@@ -1278,9 +1044,7 @@ function getFinanceSummary(tickets) {
     topProductName: topProduct?.name || "Sin ventas",
     topProductQty: topProduct?.qty || 0,
     highestTicketName: highestTicket?.name || highestTicket?.alias || "Sin ventas",
-    highestTicketTotal: highestTicket?.total || 0,
-    bestDayLabel: bestDay?.dateKey || "Sin ventas",
-    bestDayTotal: bestDay?.total || 0
+    highestTicketTotal: highestTicket?.total || 0
   };
 }
 
@@ -1463,7 +1227,7 @@ function finishedTicketItemsTable(ticket) {
         <tbody>
           ${items.map((item) => `
             <tr>
-              <td><strong>${escapeHtml(item.name || "Producto")}</strong></td>
+              <td><strong>${escapeHtml(item.name || "Producto")}</strong>${renderItemOptions(item)}</td>
               <td>${escapeHtml(item.category || "Sin categoria")}</td>
               <td>${formatMoney(item.price)}</td>
               <td>${Number(item.qty || 0)}</td>
@@ -1616,6 +1380,7 @@ function buildPrintableTicketHtml(ticket) {
                     ${Number(item.qty || 0)} x ${escapeHtml(item.name || "Producto")}
                     <br>
                     <span class="muted">${formatMoney(item.price)} c/u</span>
+                    ${normalizeOptions(item.options || "") ? `<br><span class="muted"><strong>Notas:</strong> ${escapeHtml(normalizeOptions(item.options))}</span>` : ""}
                   </td>
                   <td>${formatMoney(item.subtotal)}</td>
                 </tr>
@@ -1718,8 +1483,17 @@ function saveSingleTicketPdf(ticketId) {
 
     docPdf.setFontSize(9);
     docPdf.text(`Categoria: ${item.category || "Sin categoria"} | Precio: ${formatMoney(item.price)}`, 18, y);
+    y += 5;
+
+    const options = normalizeOptions(item.options || "");
+    if (options) {
+      const optionsWrapped = docPdf.splitTextToSize(`Indicaciones: ${options}`, 170);
+      docPdf.text(optionsWrapped, 18, y);
+      y += optionsWrapped.length * 5;
+    }
+
     docPdf.setFontSize(11);
-    y += 8;
+    y += 4;
   });
 
   y += 4;
@@ -1883,6 +1657,10 @@ function openTicketModal(ticketId) {
       <div class="form-group" style="align-self:end;">
         <button class="btn btn-primary" data-action="add-item" data-id="${ticket.id}">Agregar al ticket</button>
       </div>
+      <div class="form-group full">
+        <label for="ticket-options">Opciones o indicaciones para cocina</label>
+        <textarea id="ticket-options" class="ticket-options-input" placeholder="Ejemplo: sin fresas, con nutella, poco hielo, sin cebolla..."></textarea>
+      </div>
     </div>
     <div style="height:16px;"></div>
     ${ticketItemsTable(ticket)}
@@ -1914,7 +1692,12 @@ function ticketItemsTable(ticket) {
             const status = itemKitchenStatus(item);
             return `
               <tr class="${prepared ? "ticket-row-prepared" : "ticket-row-preparation"}">
-                <td>${escapeHtml(item.name)}<br><span style="color:var(--color-600); font-size:12px;">${escapeHtml(item.category || "")}</span></td>
+                <td>
+                  ${escapeHtml(item.name)}
+                  <br>
+                  <span style="color:var(--color-600); font-size:12px;">${escapeHtml(item.category || "")}</span>
+                  ${renderItemOptions(item)}
+                </td>
                 <td><span class="status-mini ${kitchenStatusClass(status)}">${kitchenStatusLabel(status)}</span></td>
                 <td>${formatMoney(item.price)}</td>
                 <td>
@@ -1942,15 +1725,22 @@ async function addItemToTicket(ticketId) {
   const ticket = activeTickets.find((item) => item.id === ticketId);
   const productId = document.querySelector("#ticket-product")?.value;
   const qty = Math.max(1, Number(document.querySelector("#ticket-qty")?.value || 1));
+  const options = normalizeOptions(document.querySelector("#ticket-options")?.value || "");
   const product = products.find((item) => item.id === productId);
   if (!ticket || !product) return showToast("Selecciona un producto valido");
 
   const items = [...(ticket.items || [])];
-  const existing = items.find((item) => item.productId === product.id && item.price === product.price && !isItemPrepared(item));
+  const existing = items.find((item) => (
+    item.productId === product.id &&
+    item.price === product.price &&
+    normalizeOptions(item.options || "") === options &&
+    !isItemPrepared(item)
+  ));
 
   if (existing) {
     existing.qty = Number(existing.qty || 0) + qty;
     existing.subtotal = existing.qty * Number(existing.price || 0);
+    existing.options = options;
     existing.kitchenStatus = itemKitchenStatus(existing);
     existing.kitchenUpdatedAt = new Date().toISOString();
   } else {
@@ -1961,6 +1751,7 @@ async function addItemToTicket(ticketId) {
       category: product.category,
       price: Number(product.price || 0),
       qty,
+      options,
       subtotal: Number(product.price || 0) * qty,
       kitchenStatus: "preparacion",
       kitchenCreatedAt: new Date().toISOString(),
@@ -1977,6 +1768,7 @@ async function saveTicketItems(ticketId, items) {
   const normalizedItems = items.map((item) => ({
     ...item,
     lineId: item.lineId || makeLineId(),
+    options: normalizeOptions(item.options || item.notes || item.kitchenNotes || ""),
     kitchenStatus: itemKitchenStatus(item),
     subtotal: Number(item.qty || 0) * Number(item.price || 0)
   }));
@@ -2931,260 +2723,6 @@ function addFinancePdfFooters(docPdf, pageWidth, pageHeight, margin) {
   }
 }
 
-function printPeriodReport() {
-  if (!currentPeriodTickets.length) {
-    showToast("Primero consulta un periodo con ventas");
-    return;
-  }
-
-  const printWindow = window.open("", "_blank", "width=920,height=720");
-
-  if (!printWindow) {
-    showToast("Permite ventanas emergentes para imprimir");
-    return;
-  }
-
-  printWindow.document.open();
-  printWindow.document.write(buildPeriodPrintableReportHtml());
-  printWindow.document.close();
-  printWindow.focus();
-}
-
-function savePeriodPdfReport() {
-  if (!window.jspdf) return showToast("No se pudo cargar jsPDF");
-  if (!currentPeriodTickets.length) return showToast("Primero consulta un periodo con ventas");
-
-  const { jsPDF } = window.jspdf;
-  const docPdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" });
-  const pageWidth = docPdf.internal.pageSize.getWidth();
-  const pageHeight = docPdf.internal.pageSize.getHeight();
-  const margin = 12;
-  const summary = getFinanceSummary(currentPeriodTickets);
-  const productRows = getFinanceProductRows(currentPeriodTickets);
-  const dailyRows = getPeriodDailyRows(currentPeriodTickets);
-
-  let y = 12;
-
-  drawFinancePdfHeader(docPdf, pageWidth, margin, y);
-  y += 28;
-
-  docPdf.setTextColor(11, 15, 12);
-  docPdf.setFont("helvetica", "bold");
-  docPdf.setFontSize(12);
-  docPdf.text(`${periodTitle(currentPeriodRange.type)}: ${currentPeriodRange.label}`, margin, y);
-  y += 7;
-  docPdf.setFont("helvetica", "normal");
-  docPdf.setFontSize(9);
-  docPdf.text(`Rango: ${currentPeriodRange.startKey} a ${currentPeriodRange.endKey}`, margin, y);
-  docPdf.text(`Generado: ${formatTicketDateTimeFromDate(new Date())}`, pageWidth - margin, y, { align: "right" });
-  y += 9;
-
-  y = drawFinancePdfMetrics(docPdf, summary, margin, y, pageWidth);
-  y += 8;
-
-  docPdf.setFont("helvetica", "bold");
-  docPdf.setFontSize(12);
-  docPdf.setTextColor(30, 41, 32);
-  docPdf.text("Ventas por dia", margin, y);
-  y += 7;
-  y = drawPeriodDailyPdfTable(docPdf, dailyRows, margin, y, pageWidth, pageHeight);
-
-  if (y > pageHeight - 60) {
-    docPdf.addPage();
-    y = 16;
-  }
-
-  y += 6;
-  docPdf.setFont("helvetica", "bold");
-  docPdf.setFontSize(12);
-  docPdf.setTextColor(30, 41, 32);
-  docPdf.text("Detalle de tickets", margin, y);
-  y += 7;
-  y = drawFinancePdfTicketTable(docPdf, currentPeriodTickets, margin, y, pageWidth, pageHeight);
-
-  if (productRows.length) {
-    if (y > pageHeight - 58) {
-      docPdf.addPage();
-      y = 16;
-    }
-
-    y += 6;
-    docPdf.setFont("helvetica", "bold");
-    docPdf.setFontSize(12);
-    docPdf.setTextColor(30, 41, 32);
-    docPdf.text("Productos mas vendidos", margin, y);
-    y += 7;
-    drawFinancePdfProductTable(docPdf, productRows.slice(0, 10), margin, y, pageWidth, pageHeight);
-  }
-
-  addPeriodPdfFooters(docPdf, pageWidth, pageHeight, margin);
-  docPdf.save(`reporte_${currentPeriodRange.type}_esspreso_${currentPeriodRange.startKey}_${currentPeriodRange.endKey}.pdf`);
-}
-
-function buildPeriodPrintableReportHtml() {
-  const summary = getFinanceSummary(currentPeriodTickets);
-  const productRows = getFinanceProductRows(currentPeriodTickets);
-  const dailyRows = getPeriodDailyRows(currentPeriodTickets);
-
-  return `
-    <!doctype html>
-    <html lang="es">
-      <head>
-        <meta charset="UTF-8">
-        <title>${escapeHtml(periodTitle(currentPeriodRange.type))} esspreso</title>
-        <style>
-          @page { size: letter; margin: 12mm; }
-          * { box-sizing: border-box; }
-          body { margin: 0; font-family: Arial, sans-serif; color: #0B0F0C; background: #ffffff; }
-          .report-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border-radius: 14px; background: #1E2920; color: #F0F4F1; }
-          .report-header h1 { margin: 0; font-size: 22px; }
-          .report-header p { margin: 4px 0 0; font-size: 12px; color: #D6E1D8; }
-          .logo { width: 112px; height: auto; object-fit: contain; background: #ffffff; border-radius: 10px; padding: 4px; }
-          .meta { display: flex; justify-content: space-between; gap: 12px; margin: 12px 0; font-size: 12px; color: #3D5241; font-weight: 700; }
-          .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0 12px; }
-          .metric { min-height: 58px; padding: 8px; border: 1px solid #D6E1D8; border-radius: 10px; background: #F0F4F1; }
-          .metric span { display: block; font-size: 10px; color: #59785F; font-weight: 700; }
-          .metric strong { display: block; margin-top: 4px; font-size: 16px; }
-          .metric small { display: block; margin-top: 3px; font-size: 9px; color: #59785F; }
-          h2 { margin: 12px 0 6px; font-size: 14px; color: #1E2920; }
-          table { width: 100%; border-collapse: collapse; font-size: 10px; page-break-inside: auto; }
-          thead { display: table-header-group; }
-          tr { page-break-inside: avoid; }
-          th { padding: 6px; background: #D6E1D8; color: #1E2920; text-align: left; border: 1px solid #BCCDBF; }
-          td { padding: 6px; border: 1px solid #D6E1D8; vertical-align: top; }
-          td.money, th.money { text-align: right; }
-          .print-note { margin-top: 10px; font-size: 10px; color: #59785F; text-align: center; }
-        </style>
-      </head>
-      <body>
-        <header class="report-header">
-          <div>
-            <h1>${escapeHtml(periodTitle(currentPeriodRange.type))}</h1>
-            <p>esspreso cafe y sabor · reporte contable</p>
-          </div>
-          <img src="/assets/logo-esspreso.png" class="logo" alt="esspreso">
-        </header>
-
-        <div class="meta">
-          <span>Periodo: ${escapeHtml(currentPeriodRange.label)}</span>
-          <span>Rango: ${escapeHtml(currentPeriodRange.startKey)} a ${escapeHtml(currentPeriodRange.endKey)}</span>
-          <span>Generado: ${escapeHtml(formatTicketDateTimeFromDate(new Date()))}</span>
-        </div>
-
-        <section class="metrics">
-          ${printMetric("Ingreso total", formatMoney(summary.total), "Ventas finalizadas")}
-          ${printMetric("Efectivo", formatMoney(summary.cash), "Caja")}
-          ${printMetric("Digital", formatMoney(summary.card + summary.transfer), "Tarjeta + transferencia")}
-          ${printMetric("Tickets", summary.ticketCount, `${summary.mesaCount} mesas · ${summary.llevarCount} llevar`)}
-          ${printMetric("Promedio", formatMoney(summary.averageTicket), "Ticket promedio")}
-          ${printMetric("Productos", summary.items, `${summary.averageItems} por ticket`)}
-          ${printMetric("Producto top", summary.topProductName, `${summary.topProductQty} vendido(s)`)}
-          ${printMetric("Dia top", summary.bestDayLabel, formatMoney(summary.bestDayTotal))}
-        </section>
-
-        <h2>Ventas por dia</h2>
-        ${financePrintableDailyTable(dailyRows)}
-
-        <h2>Detalle de tickets</h2>
-        ${financePrintableTicketTable(currentPeriodTickets)}
-
-        <h2>Productos mas vendidos</h2>
-        ${financePrintableProductTable(productRows.slice(0, 12))}
-
-        <p class="print-note">Reporte generado desde el punto de venta esspreso.</p>
-        <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
-      </body>
-    </html>
-  `;
-}
-
-function financePrintableDailyTable(rows) {
-  if (!rows.length) return `<p>No hay ventas en este periodo.</p>`;
-
-  return `
-    <table>
-      <thead>
-        <tr>
-          <th>Fecha</th>
-          <th>Tickets</th>
-          <th>Productos</th>
-          <th class="money">Efectivo</th>
-          <th class="money">Digital</th>
-          <th class="money">Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map((row) => `
-          <tr>
-            <td>${escapeHtml(row.dateKey)}</td>
-            <td>${row.tickets}</td>
-            <td>${row.items}</td>
-            <td class="money">${formatMoney(row.cash)}</td>
-            <td class="money">${formatMoney(row.card + row.transfer)}</td>
-            <td class="money">${formatMoney(row.total)}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-}
-
-function drawPeriodDailyPdfTable(docPdf, rows, margin, y, pageWidth, pageHeight) {
-  const columns = [
-    { label: "Fecha", x: margin, width: 34 },
-    { label: "Tickets", x: margin + 36, width: 20 },
-    { label: "Prod.", x: margin + 58, width: 18 },
-    { label: "Efectivo", x: margin + 78, width: 34 },
-    { label: "Digital", x: margin + 114, width: 34 },
-    { label: "Total", x: pageWidth - margin - 34, width: 34, align: "right" }
-  ];
-
-  y = drawFinancePdfTableHeader(docPdf, columns, y, pageWidth, margin);
-
-  if (!rows.length) {
-    docPdf.setFont("helvetica", "normal");
-    docPdf.setFontSize(9);
-    docPdf.text("No hay ventas en este periodo.", margin, y + 5);
-    return y + 12;
-  }
-
-  rows.forEach((row) => {
-    if (y > pageHeight - 20) {
-      docPdf.addPage();
-      y = 16;
-      y = drawFinancePdfTableHeader(docPdf, columns, y, pageWidth, margin);
-    }
-
-    docPdf.setFont("helvetica", "normal");
-    docPdf.setFontSize(8);
-    docPdf.setTextColor(11, 15, 12);
-    docPdf.text(String(row.dateKey), columns[0].x + 1, y + 5);
-    docPdf.text(String(row.tickets), columns[1].x + 1, y + 5);
-    docPdf.text(String(row.items), columns[2].x + 1, y + 5);
-    docPdf.text(formatMoney(row.cash), columns[3].x + 1, y + 5);
-    docPdf.text(formatMoney(row.card + row.transfer), columns[4].x + 1, y + 5);
-    docPdf.text(formatMoney(row.total), columns[5].x + columns[5].width, y + 5, { align: "right" });
-    docPdf.setDrawColor(214, 225, 216);
-    docPdf.line(margin, y + 8, pageWidth - margin, y + 8);
-    y += 9;
-  });
-
-  return y;
-}
-
-function addPeriodPdfFooters(docPdf, pageWidth, pageHeight, margin) {
-  const pages = docPdf.internal.getNumberOfPages();
-
-  for (let page = 1; page <= pages; page += 1) {
-    docPdf.setPage(page);
-    docPdf.setFont("helvetica", "normal");
-    docPdf.setFontSize(8);
-    docPdf.setTextColor(89, 120, 95);
-    docPdf.text(`esspreso · ${currentPeriodRange.startKey} a ${currentPeriodRange.endKey}`, margin, pageHeight - 7);
-    docPdf.text(`Pagina ${page} de ${pages}`, pageWidth - margin, pageHeight - 7, { align: "right" });
-  }
-}
-
 function handleClick(event) {
   const routeBtn = event.target.closest("[data-route]");
   if (routeBtn) {
@@ -3230,9 +2768,6 @@ function handleClick(event) {
   if (action === "pdf-ticket") return saveSingleTicketPdf(id);
   if (action === "print-report") return printReport();
   if (action === "pdf-report") return savePdfReport();
-  if (action === "load-period-report") return loadPeriodReport();
-  if (action === "print-period-report") return printPeriodReport();
-  if (action === "pdf-period-report") return savePeriodPdfReport();
 
 }
 
@@ -3251,34 +2786,23 @@ function handleChange(event) {
     currentFinanceDate = event.target.value || getDateKey(new Date());
     loadFinance(currentFinanceDate);
   }
-  if (action === "period-type-change") {
-    currentPeriodType = event.target.value || "semana";
-    currentPeriodRange = getPeriodRange(currentPeriodType, currentPeriodDate);
-    loadPeriodReport();
-  }
-  if (action === "period-date-change") {
-    currentPeriodDate = event.target.value || getDateKey(new Date());
-    currentPeriodRange = getPeriodRange(currentPeriodType, currentPeriodDate);
-    loadPeriodReport();
-  }
 }
 
 function stopFirestoreListeners() {
   unsubscribeProducts?.();
   unsubscribeActiveTickets?.();
+
   unsubscribeProducts = null;
   unsubscribeActiveTickets = null;
+  products = [];
+  activeTickets = [];
 }
 
 function managePrivateListeners() {
   const route = getRoute();
 
-  if (route === "menu" || route === "login" || !isAuthenticated()) {
+  if (route === "menu" || !isAuthenticated()) {
     stopFirestoreListeners();
-    if (route === "menu") {
-      products = [];
-      activeTickets = [];
-    }
     return;
   }
 
@@ -3291,16 +2815,13 @@ function init() {
   document.addEventListener("click", handleClick);
   document.addEventListener("change", handleChange);
   document.addEventListener("submit", handleSubmit);
-
   modalRoot.addEventListener("click", (event) => {
     if (event.target === modalRoot) closeModal();
   });
-
   window.addEventListener("hashchange", () => {
     managePrivateListeners();
     render();
   });
-
   window.setInterval(() => {
     if (!PUBLIC_ROUTES.includes(getRoute()) && !isAuthenticated()) {
       showToast("Sesion caducada");
@@ -3309,7 +2830,6 @@ function init() {
       render();
     }
   }, 60000);
-
   managePrivateListeners();
   render();
 }
