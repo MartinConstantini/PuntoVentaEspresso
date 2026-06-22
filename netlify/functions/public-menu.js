@@ -45,6 +45,8 @@ exports.handler = async function () {
       .map((doc) => firestoreDocToProduct(doc))
       .filter((product) => product.active !== false)
       .sort((a, b) => {
+        const sectionCompare = sectionOrder(a.menuSection) - sectionOrder(b.menuSection);
+        if (sectionCompare !== 0) return sectionCompare;
         const categoryCompare = String(a.category || "").localeCompare(String(b.category || ""), "es");
         if (categoryCompare !== 0) return categoryCompare;
         return String(a.name || "").localeCompare(String(b.name || ""), "es");
@@ -86,11 +88,34 @@ function firestoreDocToProduct(doc) {
     id,
     name: getValue(fields.name),
     category: getValue(fields.category),
+    menuSection: inferMenuSection({
+      menuSection: getValue(fields.menuSection),
+      category: getValue(fields.category)
+    }),
     price: Number(getValue(fields.price) || 0),
     description: getValue(fields.description) || "",
     imageTag: getValue(fields.imageTag) || "latte",
     active: getValue(fields.active) !== false
   };
+}
+
+const espressoCategories = new Set([
+  "Bebidas calientes",
+  "Bebidas frias",
+  "Base horchata",
+  "Otras bebidas",
+  "Malteadas",
+  "Frappe"
+]);
+
+function inferMenuSection(product = {}) {
+  const section = String(product.menuSection || "").trim().toLowerCase();
+  if (section === "brunchdy" || section === "espresso") return section;
+  return espressoCategories.has(product.category || "") ? "espresso" : "brunchdy";
+}
+
+function sectionOrder(section = "") {
+  return section === "espresso" ? 2 : 1;
 }
 
 function getValue(field) {

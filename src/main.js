@@ -47,6 +47,20 @@ const categoryBase = [
   "Frappe", "Crepas", "Waffles", "Extras"
 ];
 
+const menuSections = [
+  { id: "brunchdy", label: "Brunchdy", detail: "Manana y tarde" },
+  { id: "espresso", label: "Espresso", detail: "Noche" }
+];
+
+const espressoCategories = new Set([
+  "Bebidas calientes",
+  "Bebidas frias",
+  "Base horchata",
+  "Otras bebidas",
+  "Malteadas",
+  "Frappe"
+]);
+
 const imageMap = {
   latte: "/assets/latte.svg",
   crepa: "/assets/crepa.svg",
@@ -81,6 +95,36 @@ function renderItemOptions(item, className = "item-options") {
   if (!options) return "";
 
   return `<span class="${className}">Indicaciones: ${escapeHtml(options)}</span>`;
+}
+
+function normalizeMenuSection(value = "") {
+  const cleanValue = String(value || "").trim().toLowerCase();
+  return menuSections.some((section) => section.id === cleanValue) ? cleanValue : "";
+}
+
+function inferMenuSection(product = {}) {
+  const selected = normalizeMenuSection(product.menuSection);
+  if (selected) return selected;
+
+  const category = product.category || "";
+  return espressoCategories.has(category) ? "espresso" : "brunchdy";
+}
+
+function menuSectionLabel(value = "") {
+  const id = normalizeMenuSection(value) || "brunchdy";
+  return menuSections.find((section) => section.id === id)?.label || "Brunchdy";
+}
+
+function menuSectionDetail(value = "") {
+  const id = normalizeMenuSection(value) || "brunchdy";
+  return menuSections.find((section) => section.id === id)?.detail || "Manana y tarde";
+}
+
+function normalizeProductForMenu(product = {}) {
+  return {
+    ...product,
+    menuSection: inferMenuSection(product)
+  };
 }
 
 
@@ -329,8 +373,8 @@ function startFirestoreListeners() {
 
   unsubscribeProducts = onSnapshot(collection(db, "products"), (snapshot) => {
     products = snapshot.docs
-      .map((item) => ({ id: item.id, ...item.data() }))
-      .sort((a, b) => `${a.category}-${a.name}`.localeCompare(`${b.category}-${b.name}`, "es"));
+      .map((item) => normalizeProductForMenu({ id: item.id, ...item.data() }))
+      .sort((a, b) => `${inferMenuSection(a)}-${a.category}-${a.name}`.localeCompare(`${inferMenuSection(b)}-${b.category}-${b.name}`, "es"));
     render();
   }, (error) => showToast(`Error productos: ${error.message}`));
 
@@ -534,7 +578,7 @@ function getQrImageUrl(size = 360) {
 }
 
 function renderProducts() {
-  const grouped = groupProducts(products);
+  const groupedSections = groupProductsByMenuSection(products);
   baseLayout(`
     <section class="card panel">
       <div class="toolbar">
@@ -552,8 +596,9 @@ function renderProducts() {
           <button class="btn btn-primary" data-action="new-product">+ Nuevo producto</button>
         </div>
       </div>
-      <div class="product-grid">
-        ${products.length ? grouped.map(productGroup).join("") : `<div class="empty-state">Aun no tienes productos. Puedes cargarlos desde el menu base o crear uno manual.</div>`}
+
+      <div class="product-section-list">
+        ${products.length ? groupedSections.map(productMenuSectionGroup).join("") : `<div class="empty-state">Aun no tienes productos. Puedes cargarlos desde el menu base o crear uno manual.</div>`}
       </div>
     </section>
   `);
@@ -567,6 +612,39 @@ function groupProducts(list) {
     map.get(category).push(product);
   });
   return Array.from(map.entries()).map(([category, items]) => ({ category, items }));
+}
+
+function groupProductsByMenuSection(list) {
+  return menuSections
+    .map((section) => {
+      const items = list
+        .map(normalizeProductForMenu)
+        .filter((product) => inferMenuSection(product) === section.id);
+
+      return {
+        ...section,
+        groups: groupProducts(items)
+      };
+    })
+    .filter((section) => section.groups.length > 0);
+}
+
+function productMenuSectionGroup(section) {
+  return `
+    <section class="product-menu-section product-menu-section-${escapeHtml(section.id)}">
+      <div class="product-menu-section-title">
+        <div>
+          <h3>${escapeHtml(section.label)}</h3>
+          <p>${escapeHtml(section.detail)}</p>
+        </div>
+        <span class="badge badge-dark">${section.groups.reduce((sum, group) => sum + group.items.length, 0)} producto(s)</span>
+      </div>
+
+      <div class="product-grid">
+        ${section.groups.map(productGroup).join("")}
+      </div>
+    </section>
+  `;
 }
 
 function productGroup(group) {
@@ -585,7 +663,7 @@ function productRowMini(product) {
       <img src="${image}" alt="" style="width:54px;height:44px;object-fit:cover;border-radius:14px;background:#fff;">
       <div>
         <h3 style="font-size:15px; margin:0;">${escapeHtml(product.name)}</h3>
-        <p style="margin:2px 0 0; font-size:13px;">${formatMoney(product.price)} ${product.active === false ? "· Inactivo" : ""}</p>
+        <p style="margin:2px 0 0; font-size:13px;">${formatMoney(product.price)} · ${escapeHtml(menuSectionLabel(product.menuSection))} ${product.active === false ? "· Inactivo" : ""}</p>
       </div>
       <div style="display:flex; gap:6px;">
         <button class="icon-btn" title="Editar" data-action="edit-product" data-id="${product.id}">✎</button>
@@ -675,7 +753,7 @@ function kitchenItemRow(ticket, item, index) {
 
 function renderOnlineMenu() {
   const activeProducts = products.filter((product) => product.active !== false);
-  const grouped = groupProducts(activeProducts);
+  const groupedSections = groupProductsByMenuSection(activeProducts);
 
   baseLayout(`
     <section class="card panel online-menu-panel">
@@ -697,7 +775,15 @@ function renderOnlineMenu() {
       </div>
 
       <div class="online-menu-grid">
-        ${grouped.length ? grouped.map(onlineMenuGroup).join("") : `<div class="empty-state">No hay productos activos para mostrar.</div>`}
+        ${groupedSections.length ? groupedSections.map((section) => `
+          <section class="online-menu-section">
+            <div class="public-menu-section-heading">
+              <h1>${escapeHtml(section.label)}</h1>
+              <p>${escapeHtml(section.detail)}</p>
+            </div>
+            ${section.groups.map(onlineMenuGroup).join("")}
+          </section>
+        `).join("") : `<div class="empty-state">No hay productos activos para mostrar.</div>`}
       </div>
     </section>
   `);
@@ -852,32 +938,43 @@ function paintPublicMenu(menuProducts, updatedAt = "") {
     return;
   }
 
-  const grouped = groupProducts(menuProducts);
+  const groupedSections = groupProductsByMenuSection(menuProducts);
 
   content.innerHTML = `
     <div class="public-menu-updated">
       Actualizado: ${escapeHtml(formatPublicMenuDate(updatedAt))}
     </div>
 
-    <div class="public-menu-groups">
-      ${grouped.map((group) => `
-        <section class="public-menu-group">
-          <h2>${escapeHtml(group.category)}</h2>
+    <div class="public-menu-sections">
+      ${groupedSections.map((section) => `
+        <section class="public-menu-section public-menu-section-${escapeHtml(section.id)}">
+          <div class="public-menu-section-heading">
+            <h1>${escapeHtml(section.label)}</h1>
+            <p>${escapeHtml(section.detail)}</p>
+          </div>
 
-          <div class="public-menu-items">
-            ${group.items.map((product) => `
-              <article class="public-menu-item">
-                <div>
-                  <strong>${escapeHtml(product.name)}</strong>
-                  ${
-                    product.description
-                      ? `<p>${escapeHtml(product.description)}</p>`
-                      : ""
-                  }
+          <div class="public-menu-groups">
+            ${section.groups.map((group) => `
+              <section class="public-menu-group">
+                <h2>${escapeHtml(group.category)}</h2>
+
+                <div class="public-menu-items">
+                  ${group.items.map((product) => `
+                    <article class="public-menu-item">
+                      <div>
+                        <strong>${escapeHtml(product.name)}</strong>
+                        ${
+                          product.description
+                            ? `<p>${escapeHtml(product.description)}</p>`
+                            : ""
+                        }
+                      </div>
+
+                      <span>${formatMoney(product.price)}</span>
+                    </article>
+                  `).join("")}
                 </div>
-
-                <span>${formatMoney(product.price)}</span>
-              </article>
+              </section>
             `).join("")}
           </div>
         </section>
@@ -1773,10 +1870,11 @@ function buildPrintableTicketHtml(ticket) {
       <head>
         <meta charset="UTF-8">
         <title>Ticket ${escapeHtml(ticket.name || "esspreso")}</title>
+
         <style>
           @page {
-            size: 80mm auto;
-            margin: 8mm;
+            size: 58mm auto;
+            margin: 2mm;
           }
 
           * {
@@ -1785,64 +1883,74 @@ function buildPrintableTicketHtml(ticket) {
 
           body {
             margin: 0;
-            font-family: Arial, sans-serif;
-            color: #0B0F0C;
+            padding: 0;
+            width: 58mm;
             background: #ffffff;
+            color: #000000;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11px;
+            line-height: 1.25;
           }
 
           .ticket {
-            width: 100%;
-            max-width: 300px;
+            width: 54mm;
             margin: 0 auto;
+            padding: 2mm 0;
           }
 
+          .center { text-align: center; }
+
           .logo {
-            width: 150px;
-            margin: 0 auto 10px;
+            width: 36mm;
+            margin: 0 auto 3mm;
           }
 
           .logo img {
             width: 100%;
             height: auto;
+            display: block;
           }
 
           h1 {
             margin: 0;
-            text-align: center;
-            font-size: 18px;
-          }
-
-          .center {
+            font-size: 15px;
+            font-weight: 800;
             text-align: center;
           }
 
-          .muted {
-            color: #59785F;
-            font-size: 12px;
+          .subtitle {
+            margin: 1mm 0 2mm;
+            font-size: 10px;
+            text-align: center;
           }
 
           .line {
-            border-top: 1px dashed #3D5241;
-            margin: 10px 0;
+            border-top: 1px dashed #000;
+            margin: 2mm 0;
           }
 
           .info {
-            font-size: 12px;
-            line-height: 1.45;
+            font-size: 10px;
+          }
+
+          .info div {
+            display: flex;
+            justify-content: space-between;
+            gap: 4px;
+            margin-bottom: 1mm;
           }
 
           table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 12px;
+            font-size: 10px;
           }
 
-          th,
-          td {
-            padding: 5px 0;
-            border-bottom: 1px solid #D6E1D8;
+          th {
+            padding-bottom: 1mm;
+            border-bottom: 1px dashed #000;
             text-align: left;
-            vertical-align: top;
+            font-weight: 800;
           }
 
           th:last-child,
@@ -1850,19 +1958,58 @@ function buildPrintableTicketHtml(ticket) {
             text-align: right;
           }
 
-          .total {
+          td {
+            padding: 1.5mm 0;
+            vertical-align: top;
+            border-bottom: 1px dotted #aaa;
+          }
+
+          .product-name {
+            font-weight: 700;
+          }
+
+          .item-note {
+            display: block;
+            margin-top: 1mm;
+            font-size: 9px;
+            font-style: italic;
+            text-align: left;
+          }
+
+          .small {
+            font-size: 9px;
+          }
+
+          .total-row {
             display: flex;
             justify-content: space-between;
-            gap: 12px;
-            margin-top: 12px;
-            font-size: 18px;
-            font-weight: 800;
+            align-items: center;
+            gap: 5px;
+            margin-top: 3mm;
+            font-size: 15px;
+            font-weight: 900;
           }
 
           .thanks {
-            margin-top: 16px;
+            margin-top: 4mm;
             text-align: center;
-            font-size: 12px;
+            font-size: 10px;
+          }
+
+          .cut-space {
+            height: 10mm;
+          }
+
+          @media print {
+            html, body {
+              width: 58mm;
+              margin: 0;
+              padding: 0;
+            }
+
+            .ticket {
+              width: 54mm;
+            }
           }
         </style>
       </head>
@@ -1870,40 +2017,34 @@ function buildPrintableTicketHtml(ticket) {
       <body>
         <main class="ticket">
           <div class="logo">
-            <img src="/assets/logo-esspreso.jpeg" alt="esspreso">
+            <img src="/assets/logo-esspreso.png" alt="esspreso">
           </div>
 
           <h1>Ticket de venta</h1>
-          <p class="center muted">esspreso cafe y sabor</p>
+          <p class="subtitle">esspreso cafe y sabor</p>
 
           <div class="line"></div>
 
-          <div class="info">
-            <strong>Ticket:</strong> ${escapeHtml(ticket.name || ticket.alias || "Ticket")}<br>
-            <strong>Tipo:</strong> ${escapeHtml(ticket.type || "mesa")}<br>
-            <strong>Pago:</strong> ${escapeHtml(paymentLabel(ticket.paymentMethod))}<br>
-            <strong>Apertura:</strong> ${escapeHtml(formatTicketDateTime(ticket.createdAt))}<br>
-            <strong>Cobro:</strong> ${escapeHtml(formatTicketDateTime(ticket.closedAt))}<br>
-            <strong>Productos:</strong> ${totalItems}
-          </div>
+          <section class="info">
+            <div><strong>Ticket:</strong><span>${escapeHtml(ticket.name || ticket.alias || "Ticket")}</span></div>
+            <div><strong>Tipo:</strong><span>${escapeHtml(ticket.type || "mesa")}</span></div>
+            <div><strong>Pago:</strong><span>${escapeHtml(paymentLabel(ticket.paymentMethod))}</span></div>
+            <div><strong>Fecha:</strong><span>${escapeHtml(formatTicketDateTime(ticket.closedAt || ticket.createdAt))}</span></div>
+            <div><strong>Productos:</strong><span>${totalItems}</span></div>
+          </section>
 
           <div class="line"></div>
 
           <table>
-            <thead>
-              <tr>
-                <th>Producto</th>
-                <th>Total</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Producto</th><th>Total</th></tr></thead>
             <tbody>
               ${items.map((item) => `
                 <tr>
                   <td>
-                    ${Number(item.qty || 0)} x ${escapeHtml(item.name || "Producto")}
+                    <span class="product-name">${Number(item.qty || 0)} x ${escapeHtml(item.name || "Producto")}</span>
                     <br>
-                    <span class="muted">${formatMoney(item.price)} c/u</span>
-                    ${normalizeOptions(item.options || "") ? `<br><span class="muted"><strong>Notas:</strong> ${escapeHtml(normalizeOptions(item.options))}</span>` : ""}
+                    <span class="small">${formatMoney(item.price)} c/u</span>
+                    ${normalizeOptions(item.options || item.notes) ? `<span class="item-note">Nota: ${escapeHtml(normalizeOptions(item.options || item.notes))}</span>` : ""}
                   </td>
                   <td>${formatMoney(item.subtotal)}</td>
                 </tr>
@@ -1911,21 +2052,17 @@ function buildPrintableTicketHtml(ticket) {
             </tbody>
           </table>
 
-          <div class="total">
-            <span>Total</span>
-            <span>${formatMoney(ticket.total)}</span>
-          </div>
-
+          <div class="line"></div>
+          <div class="total-row"><span>TOTAL</span><span>${formatMoney(ticket.total)}</span></div>
           <div class="line"></div>
 
-          <p class="thanks">Gracias por tu compra.</p>
+          <p class="thanks">Gracias por tu compra<br>Vuelve pronto</p>
+          <div class="cut-space"></div>
         </main>
 
         <script>
           window.onload = function() {
-            setTimeout(function() {
-              window.print();
-            }, 500);
+            setTimeout(function() { window.print(); }, 400);
           };
         </script>
       </body>
@@ -2438,6 +2575,7 @@ function openProductModal(productId = null) {
   ];
 
   const selectedCategory = product?.category || categories[0] || "";
+  const selectedMenuSection = inferMenuSection(product || { category: selectedCategory });
 
   openModal(product ? "Editar producto" : "Nuevo producto", `
     <div class="form-grid">
@@ -2448,6 +2586,17 @@ function openProductModal(productId = null) {
           value="${escapeHtml(product?.name || "")}" 
           placeholder="Latte, Crepa clasica..."
         >
+      </div>
+
+      <div class="form-group">
+        <label for="product-menu-section">Menu</label>
+        <select id="product-menu-section">
+          ${menuSections.map((section) => `
+            <option value="${escapeHtml(section.id)}" ${section.id === selectedMenuSection ? "selected" : ""}>
+              ${escapeHtml(section.label)} - ${escapeHtml(section.detail)}
+            </option>
+          `).join("")}
+        </select>
       </div>
 
       <div class="form-group">
@@ -2507,13 +2656,14 @@ async function saveProduct(productId = "") {
   if (!firebaseReady || !db) return showToast("Configura Firebase primero");
   const name = document.querySelector("#product-name")?.value.trim();
   const category = document.querySelector("#product-category")?.value.trim();
+  const menuSection = normalizeMenuSection(document.querySelector("#product-menu-section")?.value) || inferMenuSection({ category });
   const price = Number(document.querySelector("#product-price")?.value || 0);
   const imageTag = document.querySelector("#product-image")?.value || "latte";
   const active = document.querySelector("#product-active")?.value === "true";
   const description = document.querySelector("#product-description")?.value.trim();
 
   if (!name || !category || price < 0) return showToast("Revisa nombre, categoria y precio");
-  const payload = { name, category, price, imageTag, active, description, updatedAt: serverTimestamp() };
+  const payload = { name, category, menuSection, price, imageTag, active, description, updatedAt: serverTimestamp() };
   if (productId) {
     await updateDoc(doc(db, "products", productId), payload);
   } else {
@@ -2576,7 +2726,7 @@ function exportProductsPdf() {
   const { jsPDF } = window.jspdf;
   const docPdf = new jsPDF();
   const activeProducts = products.filter((product) => product.active !== false);
-  const grouped = groupProducts(activeProducts);
+  const groupedSections = groupProductsByMenuSection(activeProducts);
   const pageWidth = docPdf.internal.pageSize.getWidth();
   const pageHeight = docPdf.internal.pageSize.getHeight();
   const margin = 14;
@@ -2599,50 +2749,67 @@ function exportProductsPdf() {
   docPdf.text(`Productos activos: ${activeProducts.length}`, pageWidth - margin, y, { align: "right" });
   y += 10;
 
-  grouped.forEach((group) => {
-    if (y > pageHeight - 38) {
+  groupedSections.forEach((section) => {
+    if (y > pageHeight - 44) {
       docPdf.addPage();
       y = 18;
     }
 
-    docPdf.setFillColor(214, 225, 216);
-    docPdf.roundedRect(margin, y, pageWidth - margin * 2, 10, 3, 3, "F");
-    docPdf.setTextColor(30, 41, 32);
+    docPdf.setFillColor(section.id === "brunchdy" ? 108 : 147, section.id === "brunchdy" ? 147 : 108, section.id === "brunchdy" ? 115 : 140);
+    docPdf.roundedRect(margin, y, pageWidth - margin * 2, 12, 4, 4, "F");
+    docPdf.setTextColor(255, 255, 255);
     docPdf.setFont("helvetica", "bold");
-    docPdf.setFontSize(12);
-    docPdf.text(group.category, margin + 4, y + 7);
-    y += 15;
+    docPdf.setFontSize(14);
+    docPdf.text(`${section.label} - ${section.detail}`, margin + 4, y + 8);
+    y += 17;
 
-    group.items.forEach((product) => {
-      if (y > pageHeight - 24) {
+    section.groups.forEach((group) => {
+      if (y > pageHeight - 38) {
         docPdf.addPage();
         y = 18;
       }
 
-      docPdf.setTextColor(11, 15, 12);
+      docPdf.setFillColor(214, 225, 216);
+      docPdf.roundedRect(margin, y, pageWidth - margin * 2, 10, 3, 3, "F");
+      docPdf.setTextColor(30, 41, 32);
       docPdf.setFont("helvetica", "bold");
-      docPdf.setFontSize(11);
-      const productName = String(product.name || "Producto");
-      const wrappedName = docPdf.splitTextToSize(productName, 125);
-      docPdf.text(wrappedName, margin + 2, y);
-      docPdf.text(formatMoney(product.price), pageWidth - margin, y, { align: "right" });
-      y += wrappedName.length * 5;
+      docPdf.setFontSize(12);
+      docPdf.text(group.category, margin + 4, y + 7);
+      y += 15;
 
-      if (product.description) {
-        docPdf.setFont("helvetica", "normal");
-        docPdf.setFontSize(9);
-        docPdf.setTextColor(89, 120, 95);
-        const wrappedDescription = docPdf.splitTextToSize(String(product.description), 150);
-        docPdf.text(wrappedDescription, margin + 2, y);
-        y += wrappedDescription.length * 4;
-      }
+      group.items.forEach((product) => {
+        if (y > pageHeight - 24) {
+          docPdf.addPage();
+          y = 18;
+        }
 
-      docPdf.setDrawColor(214, 225, 216);
-      docPdf.line(margin + 2, y + 1, pageWidth - margin - 2, y + 1);
-      y += 7;
+        docPdf.setTextColor(11, 15, 12);
+        docPdf.setFont("helvetica", "bold");
+        docPdf.setFontSize(11);
+        const productName = String(product.name || "Producto");
+        const wrappedName = docPdf.splitTextToSize(productName, 125);
+        docPdf.text(wrappedName, margin + 2, y);
+        docPdf.text(formatMoney(product.price), pageWidth - margin, y, { align: "right" });
+        y += wrappedName.length * 5;
+
+        if (product.description) {
+          docPdf.setFont("helvetica", "normal");
+          docPdf.setFontSize(9);
+          docPdf.setTextColor(89, 120, 95);
+          const wrappedDescription = docPdf.splitTextToSize(String(product.description), 150);
+          docPdf.text(wrappedDescription, margin + 2, y);
+          y += wrappedDescription.length * 4;
+        }
+
+        docPdf.setDrawColor(214, 225, 216);
+        docPdf.line(margin + 2, y + 1, pageWidth - margin - 2, y + 1);
+        y += 7;
+      });
+
+      y += 3;
     });
 
-    y += 3;
+    y += 4;
   });
 
   const url = getOnlineMenuUrl();

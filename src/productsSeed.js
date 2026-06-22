@@ -76,6 +76,20 @@ export const defaultProducts = [
   { category: "Waffles", name: "Frutos rojos", price: 75, description: "Nutella, queso crema o mermelada + miel y frutos rojos.", imageTag: "crepa" }
 ];
 
+const espressoCategories = new Set([
+  "Bebidas calientes",
+  "Bebidas frias",
+  "Base horchata",
+  "Otras bebidas",
+  "Malteadas",
+  "Frappe"
+]);
+
+function inferMenuSection(product = {}) {
+  if (product.menuSection === "brunchdy" || product.menuSection === "espresso") return product.menuSection;
+  return espressoCategories.has(product.category || "") ? "espresso" : "brunchdy";
+}
+
 function slug(value) {
   return String(value)
     .normalize("NFD")
@@ -91,6 +105,7 @@ export async function seedDefaultProducts(db) {
     const id = slug(`${product.category}-${product.name}`);
     batch.set(doc(db, "products", id), {
       ...product,
+      menuSection: inferMenuSection(product),
       active: true,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()

@@ -2180,3 +2180,72 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== SEPARACION DE MENU: BRUNCHDY / ESPRESSO ===== */
+.product-section-list,
+.public-menu-sections {
+  display: grid;
+  gap: 22px;
+}
+
+.product-menu-section {
+  display: grid;
+  gap: 14px;
+}
+
+.product-menu-section-title,
+.public-menu-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(255,255,255,.88), rgba(240,244,241,.72));
+  border: 1px solid rgba(61, 82, 65, .10);
+  box-shadow: var(--shadow-soft);
+}
+
+.product-menu-section-title h3,
+.public-menu-section-heading h1 {
+  margin: 0;
+  color: var(--color-950);
+  font-size: clamp(26px, 4vw, 42px);
+  line-height: 1;
+  letter-spacing: -.06em;
+}
+
+.product-menu-section-title p,
+.public-menu-section-heading p {
+  margin: 6px 0 0;
+  color: var(--color-600);
+  font-weight: 800;
+}
+
+.product-menu-section-brunchdy .product-menu-section-title,
+.public-menu-section-brunchdy .public-menu-section-heading {
+  background: linear-gradient(135deg, rgba(214,225,216,.92), rgba(255,255,255,.86));
+}
+
+.product-menu-section-espresso .product-menu-section-title,
+.public-menu-section-espresso .public-menu-section-heading {
+  background: linear-gradient(135deg, rgba(147,108,140,.18), rgba(255,255,255,.88));
+}
+
+.public-menu-section {
+  display: grid;
+  gap: 14px;
+}
+
+.public-menu-section + .public-menu-section {
+  margin-top: 12px;
+}
+
+@media (max-width: 640px) {
+  .product-menu-section-title,
+  .public-menu-section-heading {
+    display: grid;
+    padding: 16px;
+    border-radius: 20px;
+  }
+}
