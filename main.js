@@ -1532,22 +1532,44 @@ function openNewTicketModal() {
 
 async function createTicket() {
   if (!firebaseReady || !db) return showToast("Configura Firebase primero");
+
   const alias = document.querySelector("#ticket-alias")?.value || "Cliente";
   const type = document.querySelector("#ticket-type")?.value || "mesa";
   const name = makeTicketName(alias);
-  await addDoc(collection(db, "tickets"), {
+  const now = new Date();
+
+  const newTicketData = {
     name,
     alias: String(alias).trim() || "Cliente",
     type,
     status: "activo",
     items: [],
     total: 0,
-    dateKey: getDateKey(new Date()),
+    dateKey: getDateKey(now),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
-  });
-  closeModal();
+  };
+
+  const ticketRef = await addDoc(collection(db, "tickets"), newTicketData);
+
+  const localTicket = {
+    id: ticketRef.id,
+    ...newTicketData,
+    createdAt: {
+      seconds: Math.floor(now.getTime() / 1000)
+    },
+    updatedAt: {
+      seconds: Math.floor(now.getTime() / 1000)
+    }
+  };
+
+  const alreadyExists = activeTickets.some((ticket) => ticket.id === ticketRef.id);
+  if (!alreadyExists) {
+    activeTickets = [localTicket, ...activeTickets];
+  }
+
   showToast("Ticket creado");
+  openTicketModal(ticketRef.id);
 }
 
 function openTicketModal(ticketId) {
